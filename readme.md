@@ -1,14 +1,10 @@
-[![](https://dcbadge.vercel.app/api/server/3E8ca2dkcC)](https://discord.gg/osmu)
+# ESP-Miner-Lan
+This is a fork of esp-miner, the open source ESP32 firmware for the [Bitaxe](https://github.com/bitaxeorg/bitaxe) with ethernet support.    
+The idea and much of the code come from [CryptoIceMLH/ESP-Miner-LAN](https://github.com/CryptoIceMLH/ESP-Miner-LAN). This aims to be a more maintainable version of the Ethernet implementation.
 
-![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/bitaxeorg/esp-miner/total)
-![GitHub commit activity](https://img.shields.io/github/commit-activity/t/bitaxeorg/esp-miner)
-![GitHub contributors](https://img.shields.io/github/contributors/bitaxeorg/esp-miner)
-![Alt](https://repobeats.axiom.co/api/embed/70889479b1e002c18a184b05bc5cbf2ed3718579.svg "Repobeats analytics image")
+> :warning: This was only tested on a Bitaxe 601. The Author takes NO responsibility. Use this at your OWN RISK!
 
-# ESP-Miner
-esp-miner is open source ESP32 firmware for the [Bitaxe](https://github.com/bitaxeorg/bitaxe)
-
-If you are looking for premade images to load on your Bitaxe, check out the [latest release](https://github.com/bitaxeorg/ESP-Miner/releases/latest) page. Maybe you want [instructions](https://github.com/bitaxeorg/ESP-Miner/blob/master/flashing.md) for loading factory images.
+You can find the wiring instructions [here](ethernet-wiring.md).
 
 # Bitaxetool
 We also have a command line python tool for flashing Bitaxe and updating the config called Bitaxetool 
