@@ -2,6 +2,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_mac.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -16,6 +17,10 @@
 #include "connect.h"
 #include "global_state.h"
 #include "nvs_config.h"
+
+#ifdef CONFIG_ENABLE_ETHERNET
+#include "ethernet_w5500.h"
+#endif
 
 // Maximum number of access points to scan
 #define MAX_AP_COUNT 20
@@ -396,6 +401,14 @@ esp_netif_t * wifi_init_sta(const char * wifi_ssid, const char * wifi_pass)
     return esp_netif_sta;
 }
 
+void network_infrastructure_init(void)
+{
+    ESP_LOGI(TAG, "Initializing network infrastructure (netif + event loop)");
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    ESP_LOGI(TAG, "Network infrastructure initialized successfully");
+}
+
 void wifi_init(void * pvParameters)
 {
     GlobalState * GLOBAL_STATE = (GlobalState *) pvParameters;
@@ -406,9 +419,6 @@ void wifi_init(void * pvParameters)
     GLOBAL_STATE->SYSTEM_MODULE.ssid[sizeof(GLOBAL_STATE->SYSTEM_MODULE.ssid)-1] = 0;
 
     free(wifi_ssid);
-
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     esp_event_handler_instance_t instance_any_id;
     esp_event_handler_instance_t instance_got_ip;
@@ -549,3 +559,180 @@ static const char *get_wifi_reason_string(int reason) {
     }
     return "Unknown error";
 }
+
+// ================================
+// ETHERNET FUNCTIONS
+// ================================
+
+#ifdef CONFIG_ENABLE_ETHERNET
+
+/**
+ * @brief Initialize Ethernet based on network mode preference
+ *
+ * This function reads the network mode from NVS and attempts to initialize
+ * Ethernet if selected. Handles fallback to WiFi if hardware not present.
+ */
+void ethernet_init(GlobalState *state)
+{
+    if (state == NULL) {
+        ESP_LOGE(TAG, "GlobalState is NULL");
+        return;
+    }
+
+    // Read network mode from NVS (default to WiFi)
+    char *network_mode_str = nvs_config_get_string(NVS_CONFIG_NETWORK_MODE);
+    state->ETHERNET_MODULE.network_mode =
+        (strcmp(network_mode_str, "ethernet") == 0) ? NETWORK_MODE_ETHERNET : NETWORK_MODE_WIFI;
+    free(network_mode_str);
+
+    // Read Ethernet config from NVS
+    state->ETHERNET_MODULE.eth_use_dhcp = nvs_config_get_u16(NVS_CONFIG_ETH_USE_DHCP);
+
+    char *static_ip = nvs_config_get_string(NVS_CONFIG_ETH_STATIC_IP);
+    strncpy(state->ETHERNET_MODULE.eth_static_ip, static_ip, sizeof(state->ETHERNET_MODULE.eth_static_ip) - 1);
+    free(static_ip);
+
+    char *gateway = nvs_config_get_string(NVS_CONFIG_ETH_GATEWAY);
+    strncpy(state->ETHERNET_MODULE.eth_gateway, gateway, sizeof(state->ETHERNET_MODULE.eth_gateway) - 1);
+    free(gateway);
+
+    char *subnet = nvs_config_get_string(NVS_CONFIG_ETH_SUBNET);
+    strncpy(state->ETHERNET_MODULE.eth_subnet, subnet, sizeof(state->ETHERNET_MODULE.eth_subnet) - 1);
+    free(subnet);
+
+    char *dns = nvs_config_get_string(NVS_CONFIG_ETH_DNS);
+    strncpy(state->ETHERNET_MODULE.eth_dns, dns, sizeof(state->ETHERNET_MODULE.eth_dns) - 1);
+    free(dns);
+
+    // Initialize state
+    state->ETHERNET_MODULE.eth_available = false;
+    state->ETHERNET_MODULE.eth_link_up = false;
+    state->ETHERNET_MODULE.eth_connected = false;
+    strcpy(state->ETHERNET_MODULE.eth_ip_addr_str, "0.0.0.0");
+    strcpy(state->ETHERNET_MODULE.eth_mac_str, "00:00:00:00:00:00");
+
+    // Mark W5500 as available (hardware is physically present)
+    // This allows UI to show Ethernet option even when in WiFi mode
+    state->ETHERNET_MODULE.eth_available = true;
+
+    // Generate and set MAC address for UI display
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    mac[5] += 1;  // Offset from WiFi MAC
+    snprintf(state->ETHERNET_MODULE.eth_mac_str,
+             sizeof(state->ETHERNET_MODULE.eth_mac_str),
+             "%02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    if (state->ETHERNET_MODULE.network_mode == NETWORK_MODE_ETHERNET) {
+        // Ethernet mode selected - fully initialize with DHCP/networking
+        ESP_LOGI(TAG, "Network mode: Ethernet - Initializing W5500...");
+
+        esp_err_t ret = ethernet_w5500_init();
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "W5500 Ethernet initialized successfully");
+            // Update MAC from actual hardware
+            ethernet_w5500_get_mac(state->ETHERNET_MODULE.eth_mac_str,
+                                  sizeof(state->ETHERNET_MODULE.eth_mac_str));
+        } else {
+            ESP_LOGW(TAG, "W5500 initialization failed: %s", esp_err_to_name(ret));
+            ESP_LOGW(TAG, "Falling back to WiFi mode");
+            state->ETHERNET_MODULE.eth_available = false;
+            state->ETHERNET_MODULE.network_mode = NETWORK_MODE_WIFI;
+        }
+    } else {
+        ESP_LOGI(TAG, "Network mode: WiFi (Ethernet hardware available but not active)");
+    }
+}
+
+/**
+ * @brief Update Ethernet connection status
+ *
+ * Call this periodically to update the Ethernet module state in GlobalState.
+ */
+void ethernet_update_status(GlobalState *state)
+{
+    if (state == NULL || !state->ETHERNET_MODULE.eth_available) {
+        return;
+    }
+
+    // Update PHY link status (cable connected)
+    state->ETHERNET_MODULE.eth_link_up = ethernet_w5500_get_link_status();
+
+    // Update connection status (has IP)
+    state->ETHERNET_MODULE.eth_connected = ethernet_w5500_is_connected();
+
+    // Update IP address if connected
+    if (state->ETHERNET_MODULE.eth_connected) {
+        ethernet_w5500_get_ip(state->ETHERNET_MODULE.eth_ip_addr_str,
+                             sizeof(state->ETHERNET_MODULE.eth_ip_addr_str));
+
+        // Copy Ethernet IP to system IP for unified access
+        strncpy(state->SYSTEM_MODULE.ip_addr_str, state->ETHERNET_MODULE.eth_ip_addr_str,
+                sizeof(state->SYSTEM_MODULE.ip_addr_str) - 1);
+
+        // Mark system as connected when Ethernet has IP
+        state->SYSTEM_MODULE.is_connected = true;
+    } else {
+        strcpy(state->ETHERNET_MODULE.eth_ip_addr_str, "0.0.0.0");
+    }
+
+    // Check link status (also logs link changes)
+    ethernet_w5500_check_link();
+}
+
+/**
+ * @brief Switch to Ethernet network mode
+ *
+ * Saves preference to NVS. System must restart for change to take effect.
+ */
+esp_err_t switch_to_ethernet_mode(GlobalState *state)
+{
+    if (state == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGI(TAG, "Switching to Ethernet mode (requires restart)");
+
+    nvs_config_set_string(NVS_CONFIG_NETWORK_MODE, "ethernet");
+    state->ETHERNET_MODULE.network_mode = NETWORK_MODE_ETHERNET;
+
+    return ESP_OK;
+}
+
+/**
+ * @brief Switch to WiFi network mode
+ *
+ * Saves preference to NVS. System must restart for change to take effect.
+ */
+esp_err_t switch_to_wifi_mode(GlobalState *state)
+{
+    if (state == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGI(TAG, "Switching to WiFi mode (requires restart)");
+
+    nvs_config_set_string(NVS_CONFIG_NETWORK_MODE, "wifi");
+    state->ETHERNET_MODULE.network_mode = NETWORK_MODE_WIFI;
+
+    return ESP_OK;
+}
+
+#else  // !CONFIG_ENABLE_ETHERNET
+
+// Stub functions when Ethernet is disabled
+void ethernet_init(GlobalState *state)
+{
+    if (state != NULL) {
+        state->ETHERNET_MODULE.network_mode = NETWORK_MODE_WIFI;
+        state->ETHERNET_MODULE.eth_available = false;
+        state->ETHERNET_MODULE.eth_connected = false;
+    }
+}
+
+void ethernet_update_status(GlobalState *state) { }
+esp_err_t switch_to_ethernet_mode(GlobalState *state) { return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t switch_to_wifi_mode(GlobalState *state) { return ESP_OK; }
+
+#endif  // CONFIG_ENABLE_ETHERNET

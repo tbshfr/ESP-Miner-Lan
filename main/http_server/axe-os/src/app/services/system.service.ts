@@ -108,6 +108,13 @@ export class SystemService {
           hashrate: 441.2579,
         },
         blockFound: 0,
+        // Ethernet fields
+        networkMode: "wifi",
+        ethAvailable: 0,
+        ethLinkUp: 0,
+        ethConnected: 0,
+        ethIPv4: "0.0.0.0",
+        ethMac: "00:00:00:00:00:00",
       }
     ).pipe(delay(1000));
   }

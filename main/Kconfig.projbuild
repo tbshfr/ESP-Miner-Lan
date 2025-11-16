@@ -50,6 +50,13 @@ menu "Bitaxe Configuration"
             
     endmenu
     
+    config ENABLE_BAP
+        bool "Enable BAP (Bitaxe Accessory Port)"
+        default n
+        help
+            Enable BAP UART interface. Disable this if using W5500 Ethernet
+            as they share GPIO pins 39 and 40 by default.
+    
     config ASIC_VOLTAGE
         int "ASIC Core Voltage (mV)"
         range 1000 1800

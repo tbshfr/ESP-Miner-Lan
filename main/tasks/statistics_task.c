@@ -153,6 +153,8 @@ void statistics_task(void * pvParameters)
             removeStatisticsBuffer();
         }
 
+        ethernet_update_status(GLOBAL_STATE);
+
         vTaskDelayUntil(&taskWakeTime, DEFAULT_POLL_RATE / portTICK_PERIOD_MS); // taskWakeTime is automatically updated
     }
 }

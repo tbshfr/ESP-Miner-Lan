@@ -1,17 +1,30 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, Input, OnInit, OnDestroy } from '@angular/core';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
-import { finalize } from 'rxjs/operators';
-import { BehaviorSubject, Observable } from 'rxjs';
+import { finalize, startWith, switchMap, takeUntil } from 'rxjs/operators';
+import { BehaviorSubject, Observable, Subject, interval } from 'rxjs';
 import { DialogService } from 'src/app/services/dialog.service';
 import { LoadingService } from 'src/app/services/loading.service';
 import { SystemService } from 'src/app/services/system.service';
-
 interface WifiNetwork {
   ssid: string;
   rssi: number;
   authmode: number;
+}
+
+interface EthernetStatus {
+  networkMode: string;
+  ethAvailable: number;
+  ethLinkUp: number;
+  ethConnected: number;
+  ethIPv4: string;
+  ethMac: string;
+  ethUseDHCP: number;
+  ethStaticIP: string;
+  ethGateway: string;
+  ethSubnet: string;
+  ethDNS: string;
 }
 
 @Component({
@@ -19,13 +32,29 @@ interface WifiNetwork {
   templateUrl: './network.edit.component.html',
   styleUrls: ['./network.edit.component.scss']
 })
-export class NetworkEditComponent implements OnInit {
+export class NetworkEditComponent implements OnInit, OnDestroy {
   private formSubject = new BehaviorSubject<FormGroup | null>(null);
   public form$: Observable<FormGroup | null> = this.formSubject.asObservable();
 
   public form!: FormGroup;
+  public ethernetForm!: FormGroup;
   public savedChanges: boolean = false;
   public scanning: boolean = false;
+
+  // WiFi status
+  public wifiIpv4: string = '';
+  public wifiStatus: string = '';
+  public wifiRSSI: number = -128;
+
+  // Ethernet status
+  public networkMode: string = 'wifi';
+  public ethAvailable: boolean = true;  // Default true to prevent tree-shaking
+  public ethLinkUp: boolean = false;
+  public ethConnected: boolean = false;
+  public ethIPv4: string = '0.0.0.0';
+  public ethMac: string = '00:00:00:00:00:00';
+
+  private destroy$ = new Subject<void>();
 
   @Input() uri = '';
 
@@ -39,6 +68,7 @@ export class NetworkEditComponent implements OnInit {
   ) {
 
   }
+
   ngOnInit(): void {
     this.systemService.getInfo(this.uri)
       .pipe(this.loadingService.lockUIUntilComplete())
@@ -47,11 +77,88 @@ export class NetworkEditComponent implements OnInit {
           hostname: [info.hostname, [Validators.required]],
           ssid: [info.ssid, [Validators.required]],
           wifiPass: ['*****'],
+          ipv4: [info.ipv4 || ''],  // Add ipv4 field for WiFi banner
         });
+
+        // Load WiFi status
+        this.wifiIpv4 = info.ipv4 || '';
+        this.wifiStatus = info.wifiStatus || '';
+        this.wifiRSSI = info.wifiRSSI || -128;
+
+        // Load Ethernet status
+        this.networkMode = info.networkMode || 'wifi';
+        this.ethAvailable = !!info.ethAvailable;
+        this.ethLinkUp = !!info.ethLinkUp;
+        this.ethConnected = !!info.ethConnected;
+        this.ethIPv4 = info.ethIPv4 || '0.0.0.0';
+        this.ethMac = info.ethMac || '00:00:00:00:00:00';
+
         this.formSubject.next(this.form);
+
+        // Load Ethernet configuration
+        this.loadEthernetConfig();
+      });
+    
+    // Start periodic refresh of network status
+    this.startPeriodicRefresh();
+  }
+  
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
+  
+  private startPeriodicRefresh(): void {
+    interval(3000)  // Refresh every 3 seconds
+      .pipe(
+        startWith(0),
+        switchMap(() => this.systemService.getInfo(this.uri)),
+        takeUntil(this.destroy$)
+      )
+      .subscribe(info => {
+        // Update WiFi status
+        this.wifiIpv4 = info.ipv4 || '';
+        this.wifiStatus = info.wifiStatus || '';
+        this.wifiRSSI = info.wifiRSSI || -128;
+        
+        // Update Ethernet status
+        this.networkMode = info.networkMode || 'wifi';
+        this.ethAvailable = !!info.ethAvailable;
+        this.ethLinkUp = !!info.ethLinkUp;
+        this.ethConnected = !!info.ethConnected;
+        this.ethIPv4 = info.ethIPv4 || '0.0.0.0';
+        this.ethMac = info.ethMac || '00:00:00:00:00:00';
       });
   }
 
+
+  private loadEthernetConfig(): void {
+    this.http.get<EthernetStatus>('/api/system/ethernet/status')
+      .subscribe({
+        next: (status) => {
+          this.ethernetForm = this.fb.group({
+            networkMode: [status.networkMode],
+            ethUseDHCP: [!!status.ethUseDHCP],
+            ethStaticIP: [status.ethStaticIP || '192.168.1.121', [Validators.required]],
+            ethGateway: [status.ethGateway || '192.168.1.1', [Validators.required]],
+            ethSubnet: [status.ethSubnet || '255.255.255.0', [Validators.required]],
+            ethDNS: [status.ethDNS || '8.8.8.8', [Validators.required]]
+          });
+        },
+        error: () => {
+          // Fallback defaults if API call fails
+          this.ethernetForm = this.fb.group({
+            networkMode: ['wifi'],
+            ethUseDHCP: [true],
+            ethStaticIP: ['192.168.1.121', [Validators.required]],
+            ethGateway: ['192.168.1.1', [Validators.required]],
+            ethSubnet: ['255.255.255.0', [Validators.required]],
+            ethDNS: ['8.8.8.8', [Validators.required]]
+          });
+        }
+      });
+  }
 
   public updateSystem() {
 
@@ -84,9 +191,56 @@ export class NetworkEditComponent implements OnInit {
       });
   }
 
+  public updateEthernetConfig() {
+    const ethConfig = this.ethernetForm.getRawValue();
+
+    this.http.post('/api/system/ethernet/config', ethConfig)
+      .pipe(this.loadingService.lockUIUntilComplete())
+      .subscribe({
+        next: () => {
+          this.toastr.success('Ethernet configuration saved');
+          this.toastr.warning('Restart required for changes to take effect');
+          this.savedChanges = true;
+        },
+        error: (err: HttpErrorResponse) => {
+          this.toastr.error(`Could not save Ethernet config. ${err.message}`);
+        }
+      });
+  }
+
+  public switchNetworkMode(mode: string) {
+    this.http.post('/api/system/network/mode', { networkMode: mode })
+      .pipe(this.loadingService.lockUIUntilComplete())
+      .subscribe({
+        next: () => {
+          this.toastr.success(`Switched to ${mode.toUpperCase()} mode`);
+          this.toastr.warning('Restart required for network mode change');
+          this.networkMode = mode;
+          this.savedChanges = true;
+        },
+        error: (err: HttpErrorResponse) => {
+          this.toastr.error(`Could not switch network mode. ${err.message}`);
+        }
+      });
+  }
+
   showWifiPassword: boolean = false;
   toggleWifiPasswordVisibility() {
     this.showWifiPassword = !this.showWifiPassword;
+  }
+
+  // Check if connected to WiFi (not in AP/captive portal mode)
+  public isConnectedToWifi(): boolean {
+    // Check if WiFi is connected by verifying we have a valid IP address
+    return this.wifiIpv4 !== '' &&
+           this.wifiIpv4 !== 'Not connected' &&
+           this.wifiIpv4 !== '0.0.0.0' &&
+           this.wifiStatus === 'Connected!';
+  }
+  
+  // Check if connected to any network (WiFi or Ethernet)
+  public isConnectedToNetwork(): boolean {
+    return this.isConnectedToWifi() || this.ethConnected;
   }
 
   public scanWifi() {
@@ -149,3 +303,4 @@ export class NetworkEditComponent implements OnInit {
       });
   }
 }
+

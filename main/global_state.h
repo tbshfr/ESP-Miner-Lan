@@ -19,6 +19,11 @@
 #define HISTORY_LENGTH 100
 #define DIFF_STRING_SIZE 10
 
+typedef enum {
+    NETWORK_MODE_WIFI = 0,
+    NETWORK_MODE_ETHERNET = 1
+} network_mode_t;
+
 typedef struct {
     char message[64];
     uint32_t count;
@@ -75,6 +80,21 @@ typedef struct
 
 typedef struct
 {
+    network_mode_t network_mode;
+    bool eth_available;      // W5500 SPI hardware detected
+    bool eth_link_up;        // Physical cable connected (PHY link)
+    bool eth_connected;      // Has IP address (DHCP or static)
+    char eth_ip_addr_str[16];
+    char eth_mac_str[18];
+    bool eth_use_dhcp;
+    char eth_static_ip[16];
+    char eth_gateway[16];
+    char eth_subnet[16];
+    char eth_dns[16];
+} EthernetModule;
+
+typedef struct
+{
     bool is_active;
     bool is_finished;
     char *message;
@@ -88,6 +108,7 @@ typedef struct
     work_queue ASIC_jobs_queue;
 
     SystemModule SYSTEM_MODULE;
+    EthernetModule ETHERNET_MODULE;
     DeviceConfig DEVICE_CONFIG;
     DisplayConfig DISPLAY_CONFIG;
     AsicTaskModule ASIC_TASK_MODULE;

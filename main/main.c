@@ -66,8 +66,48 @@ void app_main(void)
 
     SYSTEM_init_system(&GLOBAL_STATE);
 
-    // init AP and connect to wifi
-    wifi_init(&GLOBAL_STATE);
+    // Initialize network infrastructure ONCE before any interface init
+    network_infrastructure_init();
+
+    // Read network mode to determine which interface to initialize
+    char *network_mode_str = nvs_config_get_string(NVS_CONFIG_NETWORK_MODE);
+    bool use_ethernet = (strcmp(network_mode_str, "ethernet") == 0);
+    free(network_mode_str);
+
+    if (use_ethernet) {
+        ESP_LOGI(TAG, "Network mode: Ethernet - Initializing...");
+        // Try to init Ethernet
+        ethernet_init(&GLOBAL_STATE);
+        ESP_LOGI(TAG, "DEBUG: After ethernet_init, eth_available = %d", GLOBAL_STATE.ETHERNET_MODULE.eth_available);
+
+        // Wait for Ethernet to get IP and update is_connected flag
+        if (GLOBAL_STATE.ETHERNET_MODULE.eth_available) {
+            ESP_LOGI(TAG, "Waiting for Ethernet IP address...");
+            int retry_count = 0;
+            while (retry_count < 100) {  // Wait up to 10 seconds
+                ethernet_update_status(&GLOBAL_STATE);
+                if (GLOBAL_STATE.SYSTEM_MODULE.is_connected) {
+                    ESP_LOGI(TAG, "Ethernet connected with IP: %s", GLOBAL_STATE.ETHERNET_MODULE.eth_ip_addr_str);
+                    break;
+                }
+                vTaskDelay(100 / portTICK_PERIOD_MS);
+                retry_count++;
+            }
+            if (!GLOBAL_STATE.SYSTEM_MODULE.is_connected) {
+                ESP_LOGW(TAG, "Ethernet timeout, falling back to WiFi");
+                wifi_init(&GLOBAL_STATE);
+            }
+        } else {
+            ESP_LOGW(TAG, "Ethernet unavailable, initializing WiFi fallback");
+            wifi_init(&GLOBAL_STATE);
+        }
+    } else {        ESP_LOGI(TAG, "Network mode: WiFi");
+        // init AP and connect to wifi
+        wifi_init(&GLOBAL_STATE);
+        // init Ethernet detection (but not full init)
+        ethernet_init(&GLOBAL_STATE);
+        ESP_LOGI(TAG, "DEBUG: After ethernet_init, eth_available = %d", GLOBAL_STATE.ETHERNET_MODULE.eth_available);
+    }
 
     if (SYSTEM_init_peripherals(&GLOBAL_STATE) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to init peripherals");
@@ -81,12 +121,14 @@ void app_main(void)
     //start the API for AxeOS
     start_rest_server((void *) &GLOBAL_STATE);
 
-    // Initialize BAP interface
-    esp_err_t bap_ret = BAP_init(&GLOBAL_STATE);
-    if (bap_ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize BAP interface: %d", bap_ret);
-        // Continue anyway, as BAP is not critical for core functionality
-    }
+    // Initialize BAP interface if enabled in config
+    #ifdef CONFIG_ENABLE_BAP
+        esp_err_t bap_ret = BAP_init(&GLOBAL_STATE);
+        if (bap_ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to initialize BAP interface: %d", bap_ret);
+            // Continue anyway, as BAP is not critical for core functionality
+        }
+    #endif
 
     while (!GLOBAL_STATE.SYSTEM_MODULE.is_connected) {
         vTaskDelay(100 / portTICK_PERIOD_MS);

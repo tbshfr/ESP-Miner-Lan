@@ -61,6 +61,7 @@ static lv_obj_t *firmware_update_scr_filename_label;
 static lv_obj_t *firmware_update_scr_status_label;
 
 static lv_obj_t *connection_wifi_status_label;
+static lv_obj_t *connection_network_label;
 
 static lv_obj_t *urls_ip_addr_label;
 static lv_obj_t *urls_mining_url_label;
@@ -238,10 +239,11 @@ static lv_obj_t * create_scr_connection(SystemModule * module) {
     lv_obj_t * text_cont;
     lv_obj_t * scr = create_screen_with_qr(module, 4, &text_cont);
 
-    lv_obj_t *label1 = lv_label_create(text_cont);
-    lv_obj_set_width(label1, lv_pct(100));
-    lv_label_set_long_mode(label1, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_label_set_text_fmt(label1, "Wi-Fi: %s", module->ssid);
+    lv_obj_t * connection_network_label = lv_label_create(text_cont);
+    lv_obj_set_width(connection_network_label, lv_pct(100));
+    lv_label_set_long_mode(connection_network_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
+    // Start with generic label, will be updated by screen_update_cb
+    lv_label_set_text_fmt(connection_network_label, "Network: ...");
 
     connection_wifi_status_label = lv_label_create(text_cont);
     lv_obj_set_width(connection_wifi_status_label, lv_pct(100));
@@ -344,7 +346,8 @@ static lv_obj_t * create_scr_wifi() {
     lv_obj_t * scr = create_flex_screen(4);
 
     lv_obj_t *title_label = lv_label_create(scr);
-    lv_label_set_text(title_label, "Wi-Fi Signal");
+    // Start with generic title, will be updated by screen_update_cb
+    lv_label_set_text(title_label, "Network Status");
 
     wifi_rssi_value_label = lv_label_create(scr);
     lv_label_set_text(wifi_rssi_value_label, "RSSI: -- dBm");
@@ -447,14 +450,27 @@ static void screen_update_cb(lv_timer_t * timer)
         return;
     }
 
-    if (module->ssid[0] == '\0') {
+    if (module->ssid[0] == '\0' &&
+        GLOBAL_STATE->ETHERNET_MODULE.network_mode == NETWORK_MODE_WIFI) {
         screen_show(SCR_WELCOME);
         return;
     }
 
-    bool is_wifi_status_changed = strcmp(module->wifi_status, lv_label_get_text(connection_wifi_status_label)) != 0;
-    if (module->ap_enabled || is_wifi_status_changed) {
-        if (is_wifi_status_changed) {
+    if (module->ap_enabled) {
+        // Update network label based on mode
+        if (GLOBAL_STATE->ETHERNET_MODULE.network_mode == NETWORK_MODE_ETHERNET) {
+            if (strcmp(lv_label_get_text(connection_network_label), "Network: Ethernet") != 0) {
+                lv_label_set_text(connection_network_label, "Network: Ethernet");
+            }
+        } else {
+            char network_text[64];
+            snprintf(network_text, sizeof(network_text), "Wi-Fi: %s", module->ssid);
+            if (strcmp(lv_label_get_text(connection_network_label), network_text) != 0) {
+                lv_label_set_text(connection_network_label, network_text);
+            }
+        }
+
+        if (strcmp(module->wifi_status, lv_label_get_text(connection_wifi_status_label)) != 0) {
             lv_label_set_text(connection_wifi_status_label, module->wifi_status);
         }
 
@@ -523,31 +539,45 @@ static void screen_update_cb(lv_timer_t * timer)
         lv_label_set_text(mining_scriptsig_label, GLOBAL_STATE->scriptsig);
     }
 
-    // Update WiFi RSSI periodically
+    // Update WiFi RSSI periodically (only in WiFi mode)
     int8_t rssi_value = -128;
-    if (GLOBAL_STATE->SYSTEM_MODULE.is_connected) {
+
+    if (GLOBAL_STATE->ETHERNET_MODULE.network_mode == NETWORK_MODE_ETHERNET) {
+        // In Ethernet mode, show Ethernet status instead of WiFi RSSI
+        if (current_rssi_value != -127) {  // Use -127 as a flag for Ethernet mode
+            lv_label_set_text(wifi_rssi_value_label, "Mode: Ethernet");
+            if (GLOBAL_STATE->ETHERNET_MODULE.eth_connected) {
+                lv_label_set_text(wifi_signal_strength_label, "Status: Connected");
+            } else if (GLOBAL_STATE->ETHERNET_MODULE.eth_link_up) {
+                lv_label_set_text(wifi_signal_strength_label, "Status: Link Up");
+            } else {
+                lv_label_set_text(wifi_signal_strength_label, "Status: No Link");
+            }
+            current_rssi_value = -127;
+        }
+    } else if (GLOBAL_STATE->SYSTEM_MODULE.is_connected) {
         get_wifi_current_rssi(&rssi_value);
-    }
 
-    if (rssi_value != current_rssi_value) {
-        if (rssi_value > -50) {
-            lv_label_set_text(wifi_signal_strength_label, "Signal: Excellent");
-        } else if (rssi_value > -60) {
-            lv_label_set_text(wifi_signal_strength_label, "Signal: Good");
-        } else if (rssi_value > -70) {
-            lv_label_set_text(wifi_signal_strength_label, "Signal: Fair");
-        } else if (rssi_value > -128){
-            lv_label_set_text(wifi_signal_strength_label, "Signal: Weak");
-        } else {
-            lv_label_set_text(wifi_signal_strength_label, "Signal: --");
-        }
+        if (rssi_value != current_rssi_value) {
+            if (rssi_value > -50) {
+                lv_label_set_text(wifi_signal_strength_label, "Signal: Excellent");
+            } else if (rssi_value > -60) {
+                lv_label_set_text(wifi_signal_strength_label, "Signal: Good");
+            } else if (rssi_value > -70) {
+                lv_label_set_text(wifi_signal_strength_label, "Signal: Fair");
+            } else if (rssi_value > -128){
+                lv_label_set_text(wifi_signal_strength_label, "Signal: Weak");
+            } else {
+                lv_label_set_text(wifi_signal_strength_label, "Signal: --");
+            }
 
-        if (rssi_value > -128) {
-            lv_label_set_text_fmt(wifi_rssi_value_label, "RSSI: %d dBm", rssi_value);
-        } else {
-            lv_label_set_text(wifi_rssi_value_label, "RSSI: -- dBm");
+            if (rssi_value > -128) {
+                lv_label_set_text_fmt(wifi_rssi_value_label, "RSSI: %d dBm", rssi_value);
+            } else {
+                lv_label_set_text(wifi_rssi_value_label, "RSSI: -- dBm");
+            }
+            current_rssi_value = rssi_value;
         }
-        current_rssi_value = rssi_value;
     }
 
     uint32_t shares_accepted = module->shares_accepted;

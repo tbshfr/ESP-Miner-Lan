@@ -102,6 +102,14 @@ static Settings settings[NVS_CONFIG_COUNT] = {
     [NVS_CONFIG_TPS546]                                = {.nvs_key_name = "TPS546",          .type = TYPE_BOOL},
     [NVS_CONFIG_TMP1075]                               = {.nvs_key_name = "TMP1075",         .type = TYPE_BOOL},
     [NVS_CONFIG_POWER_CONSUMPTION_TARGET]              = {.nvs_key_name = "power_cons_tgt",  .type = TYPE_U16},
+
+    // Ethernet configuration
+    [NVS_CONFIG_NETWORK_MODE]                          = {.nvs_key_name = "network_mode",    .type = TYPE_STR,   .default_value = {.str = "wifi"},              .rest_name = "networkMode",      .min = 1, .max = 32},
+    [NVS_CONFIG_ETH_STATIC_IP]                         = {.nvs_key_name = "eth_static_ip",   .type = TYPE_STR,   .default_value = {.str = "192.168.1.121"},     .rest_name = "ethStaticIP",      .min = 1, .max = 32},
+    [NVS_CONFIG_ETH_GATEWAY]                           = {.nvs_key_name = "eth_gateway",     .type = TYPE_STR,   .default_value = {.str = "192.168.1.1"},       .rest_name = "ethGateway",       .min = 1, .max = 32},
+    [NVS_CONFIG_ETH_SUBNET]                            = {.nvs_key_name = "eth_subnet",      .type = TYPE_STR,   .default_value = {.str = "255.255.255.0"},     .rest_name = "ethSubnet",        .min = 1, .max = 32},
+    [NVS_CONFIG_ETH_DNS]                               = {.nvs_key_name = "eth_dns",         .type = TYPE_STR,   .default_value = {.str = "1.1.1.1"},           .rest_name = "ethDNS",           .min = 1, .max = 32},
+    [NVS_CONFIG_ETH_USE_DHCP]                          = {.nvs_key_name = "eth_use_dhcp",    .type = TYPE_U16,   .default_value = {.u16 = 1},                   .rest_name = "ethUseDHCP",       .min = 0, .max = 1},
 };
 
 Settings *nvs_config_get_settings(NvsConfigKey key)

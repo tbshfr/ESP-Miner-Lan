@@ -141,13 +141,19 @@ static esp_err_t resolve_stratum_address(const char *hostname, uint16_t port, st
     return ESP_OK;
 }
 
-bool is_wifi_connected() {
+bool is_network_connected(GlobalState *state) {
+    // Check WiFi connection
     wifi_ap_record_t ap_info;
     if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK) {
         return true;
-    } else {
-        return false;
     }
+
+    // Check Ethernet connection
+    if (state != NULL && state->ETHERNET_MODULE.eth_connected) {
+        return true;
+    }
+
+    return false;
 }
 
 void cleanQueue(GlobalState * GLOBAL_STATE) {
@@ -206,8 +212,8 @@ void stratum_primary_heartbeat(void * pvParameters)
 
         ESP_LOGD(TAG, "Running Heartbeat on: %s!", primary_stratum_url);
 
-        if (!is_wifi_connected()) {
-            ESP_LOGD(TAG, "Heartbeat. Failed WiFi check!");
+        if (!is_network_connected(GLOBAL_STATE)) {
+            ESP_LOGD(TAG, "Heartbeat. Network check failed!");
             vTaskDelay(10000 / portTICK_PERIOD_MS);
             continue;
         }
@@ -361,8 +367,8 @@ void stratum_task(void * pvParameters)
 
     ESP_LOGI(TAG, "Opening connection to pool: %s:%d", stratum_url, port);
     while (1) {
-        if (!is_wifi_connected()) {
-            ESP_LOGI(TAG, "WiFi disconnected, attempting to reconnect...");
+        if (!is_network_connected(GLOBAL_STATE)) {
+            ESP_LOGI(TAG, "Network disconnected, attempting to reconnect...");
             vTaskDelay(10000 / portTICK_PERIOD_MS);
             continue;
         }

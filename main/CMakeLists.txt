@@ -68,6 +68,7 @@ PRIV_REQUIRES
     "esp_psram"
     "esp_timer"
     "esp_wifi"
+    "ethernet_w5500"
     "json"
     "nvs_flash"
     "spiffs"

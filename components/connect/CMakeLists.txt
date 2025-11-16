@@ -13,4 +13,5 @@ REQUIRES
     "esp_wifi"
     "esp_event"
     "stratum"
+    "ethernet_w5500"
 )

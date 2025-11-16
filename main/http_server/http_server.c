@@ -706,6 +706,159 @@ static esp_err_t POST_restart(httpd_req_t * req)
     return ESP_OK;
 }
 
+/* Handler for getting ethernet status */
+static esp_err_t GET_ethernet_status(httpd_req_t * req)
+{
+    if (is_network_allowed(req) != ESP_OK) {
+        return httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized");
+    }
+
+    httpd_resp_set_type(req, "application/json");
+
+    if (set_cors_headers(req) != ESP_OK) {
+        httpd_resp_send_500(req);
+        return ESP_OK;
+    }
+
+    cJSON * root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "networkMode",
+        GLOBAL_STATE->ETHERNET_MODULE.network_mode == NETWORK_MODE_ETHERNET ? "ethernet" : "wifi");
+    cJSON_AddNumberToObject(root, "ethAvailable", GLOBAL_STATE->ETHERNET_MODULE.eth_available);
+    cJSON_AddNumberToObject(root, "ethLinkUp", GLOBAL_STATE->ETHERNET_MODULE.eth_link_up);
+    cJSON_AddNumberToObject(root, "ethConnected", GLOBAL_STATE->ETHERNET_MODULE.eth_connected);
+    cJSON_AddStringToObject(root, "ethIPv4", GLOBAL_STATE->ETHERNET_MODULE.eth_ip_addr_str);
+    cJSON_AddStringToObject(root, "ethMac", GLOBAL_STATE->ETHERNET_MODULE.eth_mac_str);
+    cJSON_AddNumberToObject(root, "ethUseDHCP", GLOBAL_STATE->ETHERNET_MODULE.eth_use_dhcp);
+    cJSON_AddStringToObject(root, "ethStaticIP", GLOBAL_STATE->ETHERNET_MODULE.eth_static_ip);
+    cJSON_AddStringToObject(root, "ethGateway", GLOBAL_STATE->ETHERNET_MODULE.eth_gateway);
+    cJSON_AddStringToObject(root, "ethSubnet", GLOBAL_STATE->ETHERNET_MODULE.eth_subnet);
+    cJSON_AddStringToObject(root, "ethDNS", GLOBAL_STATE->ETHERNET_MODULE.eth_dns);
+
+    const char * response = cJSON_Print(root);
+    httpd_resp_sendstr(req, response);
+    free((char *)response);
+    cJSON_Delete(root);
+    return ESP_OK;
+}
+
+/* Handler for setting ethernet config */
+static esp_err_t POST_ethernet_config(httpd_req_t * req)
+{
+    if (is_network_allowed(req) != ESP_OK) {
+        return httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized");
+    }
+
+    int total_len = req->content_len;
+    int cur_len = 0;
+    char *buf = ((rest_server_context_t *)(req->user_ctx))->scratch;
+    int received = 0;
+
+    if (total_len >= SCRATCH_BUFSIZE) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Content too long");
+        return ESP_FAIL;
+    }
+
+    while (cur_len < total_len) {
+        received = httpd_req_recv(req, buf + cur_len, total_len);
+        if (received <= 0) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to post control value");
+            return ESP_FAIL;
+        }
+        cur_len += received;
+    }
+    buf[total_len] = '\0';
+
+    cJSON * root = cJSON_Parse(buf);
+    if (root == NULL) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    cJSON * item;
+
+    // Update static IP configuration
+    if ((item = cJSON_GetObjectItem(root, "ethUseDHCP")) != NULL) {
+        nvs_config_set_u16(NVS_CONFIG_ETH_USE_DHCP, item->valueint ? 1 : 0);
+    }
+
+    if ((item = cJSON_GetObjectItem(root, "ethStaticIP")) != NULL && cJSON_IsString(item)) {
+        nvs_config_set_string(NVS_CONFIG_ETH_STATIC_IP, item->valuestring);
+    }
+
+    if ((item = cJSON_GetObjectItem(root, "ethGateway")) != NULL && cJSON_IsString(item)) {
+        nvs_config_set_string(NVS_CONFIG_ETH_GATEWAY, item->valuestring);
+    }
+
+    if ((item = cJSON_GetObjectItem(root, "ethSubnet")) != NULL && cJSON_IsString(item)) {
+        nvs_config_set_string(NVS_CONFIG_ETH_SUBNET, item->valuestring);
+    }
+
+    if ((item = cJSON_GetObjectItem(root, "ethDNS")) != NULL && cJSON_IsString(item)) {
+        nvs_config_set_string(NVS_CONFIG_ETH_DNS, item->valuestring);
+    }
+
+    cJSON_Delete(root);
+    httpd_resp_send_chunk(req, NULL, 0);
+    return ESP_OK;
+}
+
+/* Handler for switching to ethernet */
+static esp_err_t POST_ethernet_mode(httpd_req_t * req)
+{
+    if (is_network_allowed(req) != ESP_OK) {
+        return httpd_resp_send_err(req, HTTPD_401_UNAUTHORIZED, "Unauthorized");
+    }
+
+    int total_len = req->content_len;
+    int cur_len = 0;
+    char *buf = ((rest_server_context_t *)(req->user_ctx))->scratch;
+    int received = 0;
+
+    if (total_len >= SCRATCH_BUFSIZE) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Content too long");
+        return ESP_FAIL;
+    }
+
+    while (cur_len < total_len) {
+        received = httpd_req_recv(req, buf + cur_len, total_len);
+        if (received <= 0) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to post control value");
+            return ESP_FAIL;
+        }
+        cur_len += received;
+    }
+    buf[total_len] = '\0';
+
+    cJSON * root = cJSON_Parse(buf);
+    if (root == NULL) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
+        return ESP_FAIL;
+    }
+
+    cJSON * item = cJSON_GetObjectItem(root, "networkMode");
+    if (item != NULL && cJSON_IsString(item)) {
+        const char *mode = item->valuestring;
+        if (strcmp(mode, "ethernet") == 0) {
+            switch_to_ethernet_mode(GLOBAL_STATE);
+            ESP_LOGI(TAG, "Network mode set to Ethernet (restart required)");
+        } else if (strcmp(mode, "wifi") == 0) {
+            switch_to_wifi_mode(GLOBAL_STATE);
+            ESP_LOGI(TAG, "Network mode set to WiFi (restart required)");
+        } else {
+            cJSON_Delete(root);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid network mode");
+            return ESP_FAIL;
+        }
+    }
+
+    cJSON_Delete(root);
+
+    // Send response indicating restart is required
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "{\"status\":\"ok\",\"message\":\"Network mode updated. Restart required.\"}");
+    return ESP_OK;
+}
+
 /* Simple handler for getting system handler */
 static esp_err_t GET_system_info(httpd_req_t * req)
 {
@@ -737,8 +890,19 @@ static esp_err_t GET_system_info(httpd_req_t * req)
     char formattedMac[18];
     snprintf(formattedMac, sizeof(formattedMac), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
+    wifi_mode_t wifi_mode;
+    bool wifi_active = true;
+    esp_err_t wifi_mode_err = esp_wifi_get_mode(&wifi_mode);
+    if (wifi_mode_err != ESP_OK || wifi_mode == WIFI_MODE_NULL) {
+        wifi_active = false;
+    }
     int8_t wifi_rssi = -90;
-    get_wifi_current_rssi(&wifi_rssi);
+    if (wifi_active) {
+        if (get_wifi_current_rssi(&wifi_rssi) != ESP_OK) {
+            wifi_rssi = -90;
+        }
+    }
+    const char *wifi_status_out = wifi_active ? GLOBAL_STATE->SYSTEM_MODULE.wifi_status : "Disabled (Ethernet mode)";
 
     cJSON * root = cJSON_CreateObject();
     cJSON_AddNumberToObject(root, "power", GLOBAL_STATE->POWER_MANAGEMENT_MODULE.power);
@@ -777,6 +941,13 @@ static esp_err_t GET_system_info(httpd_req_t * req)
     cJSON_AddStringToObject(root, "wifiStatus", GLOBAL_STATE->SYSTEM_MODULE.wifi_status);
     cJSON_AddNumberToObject(root, "wifiRSSI", wifi_rssi);
     cJSON_AddNumberToObject(root, "apEnabled", GLOBAL_STATE->SYSTEM_MODULE.ap_enabled);
+    cJSON_AddStringToObject(root, "networkMode", GLOBAL_STATE->ETHERNET_MODULE.network_mode == NETWORK_MODE_ETHERNET ? "ethernet" : "wifi");
+    cJSON_AddNumberToObject(root, "ethAvailable", GLOBAL_STATE->ETHERNET_MODULE.eth_available);
+    cJSON_AddNumberToObject(root, "ethLinkUp", GLOBAL_STATE->ETHERNET_MODULE.eth_link_up);
+    cJSON_AddNumberToObject(root, "ethConnected", GLOBAL_STATE->ETHERNET_MODULE.eth_connected);
+    cJSON_AddStringToObject(root, "ethIPv4", GLOBAL_STATE->ETHERNET_MODULE.eth_ip_addr_str);
+    cJSON_AddStringToObject(root, "ethMac", GLOBAL_STATE->ETHERNET_MODULE.eth_mac_str);
+
     cJSON_AddNumberToObject(root, "sharesAccepted", GLOBAL_STATE->SYSTEM_MODULE.shares_accepted);
     cJSON_AddNumberToObject(root, "sharesRejected", GLOBAL_STATE->SYSTEM_MODULE.shares_rejected);
 

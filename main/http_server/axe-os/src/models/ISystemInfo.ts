@@ -43,6 +43,12 @@ export interface ISystemInfo {
     ipv6: string,
     wifiRSSI: number,
     apEnabled: number,
+    networkMode: string,
+    ethAvailable: number,
+    ethLinkUp: number,
+    ethConnected: number,
+    ethIPv4: string,
+    ethMac: string,
     sharesAccepted: number,
     sharesRejected: number,
     sharesRejectedReasons: ISharesRejectedStat[];
