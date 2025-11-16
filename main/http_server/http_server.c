@@ -938,7 +938,7 @@ static esp_err_t GET_system_info(httpd_req_t * req)
     cJSON_AddStringToObject(root, "hostname", hostname);
     cJSON_AddStringToObject(root, "ipv4", ipv4);
     cJSON_AddStringToObject(root, "ipv6", ipv6);
-    cJSON_AddStringToObject(root, "wifiStatus", GLOBAL_STATE->SYSTEM_MODULE.wifi_status);
+    cJSON_AddStringToObject(root, "wifiStatus", wifi_status_out);
     cJSON_AddNumberToObject(root, "wifiRSSI", wifi_rssi);
     cJSON_AddNumberToObject(root, "apEnabled", GLOBAL_STATE->SYSTEM_MODULE.ap_enabled);
     cJSON_AddStringToObject(root, "networkMode", GLOBAL_STATE->ETHERNET_MODULE.network_mode == NETWORK_MODE_ETHERNET ? "ethernet" : "wifi");
