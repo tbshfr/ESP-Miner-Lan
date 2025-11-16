@@ -1389,6 +1389,33 @@ esp_err_t start_rest_server(void * pvParameters)
     };
     httpd_register_uri_handler(server, &wifi_scan_get_uri);
 
+    /* URI handler for getting ethernet status */
+    httpd_uri_t ethernet_status_get_uri = {
+        .uri = "/api/system/ethernet/status",
+        .method = HTTP_GET,
+        .handler = GET_ethernet_status,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &ethernet_status_get_uri);
+
+    /* URI handler for setting ethernet config */
+    httpd_uri_t ethernet_config_post_uri = {
+        .uri = "/api/system/ethernet/config",
+        .method = HTTP_POST,
+        .handler = POST_ethernet_config,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &ethernet_config_post_uri);
+
+    /* URI handler for switching network mode */
+    httpd_uri_t ethernet_mode_post_uri = {
+        .uri = "/api/system/ethernet/mode",
+        .method = HTTP_POST,
+        .handler = POST_ethernet_mode,
+        .user_ctx = rest_context
+    };
+    httpd_register_uri_handler(server, &ethernet_mode_post_uri);
+
     httpd_uri_t system_restart_uri = {
         .uri = "/api/system/restart", .method = HTTP_POST, 
         .handler = POST_restart, 
