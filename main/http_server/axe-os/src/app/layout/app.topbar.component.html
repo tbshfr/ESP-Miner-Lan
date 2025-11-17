@@ -28,20 +28,25 @@
                     <i class="pi pi-{{sensitiveDataHidden ? 'eye-slash' : 'eye'}} block" style="font-size: 1.4rem;"></i>
                 </a>
             </li>
-            <li *ngIf="info.networkMode === 'wifi'">
+            <li *ngIf="info.networkMode === 'wifi' || (info.networkMode === 'ethernet' && !info.ethConnected)">
                 <a routerLink="network"
                     class="block py-2"
                     tooltipPosition="bottom"
-                    pTooltip="Wi-Fi RSSI: {{info.wifiRSSI}} dBm"
+                    [pTooltip]="info.networkMode === 'ethernet' && !info.ethConnected ? 
+                        'Wi-Fi (Ethernet fallback) RSSI: ' + info.wifiRSSI + ' dBm' : 
+                        'Wi-Fi RSSI: ' + info.wifiRSSI + ' dBm'"
                 >
                     <wifi-icon [rssi]="info.wifiRSSI" />
+                    <i *ngIf="info.networkMode === 'ethernet' && !info.ethConnected" 
+                       class="pi pi-exclamation-triangle text-yellow-500 absolute" 
+                       style="font-size: 0.7rem; margin-top: -0.3rem; margin-left: -0.5rem;"></i>
                 </a>
             </li>
-            <li *ngIf="info.networkMode === 'ethernet'">
+            <li *ngIf="info.networkMode === 'ethernet' && info.ethConnected">
                 <a routerLink="network"
                     class="block py-2 text-white"
                     tooltipPosition="bottom"
-                    [pTooltip]="info.ethConnected ? 'Ethernet: ' + info.ethIPv4 : 'Ethernet: Disconnected'"
+                    [pTooltip]="'Ethernet: ' + info.ethIPv4"
                 >
                     <i class="pi pi-bolt block" style="font-size: 1.4rem;"></i>
                 </a>
