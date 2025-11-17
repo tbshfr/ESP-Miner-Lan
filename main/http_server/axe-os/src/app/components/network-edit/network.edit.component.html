@@ -106,12 +106,11 @@
 
         <!-- Ethernet Settings -->
         <div *ngIf="networkMode === 'ethernet' && ethernetForm" [formGroup]="ethernetForm">
-            <div class="field grid p-fluid">
-                <label class="col-12 md:col-2 md:m-0">DHCP</label>
-                <div class="col-12 md:col-10">
-                    <p-inputSwitch formControlName="ethUseDHCP"></p-inputSwitch>
-                    <small class="text-muted ml-2">Use DHCP for automatic IP assignment</small>
+            <div class="field-checkbox grid my-2">
+                <div class="col-1 md:col-10 md:flex-order-2">
+                    <p-checkbox name="ethUseDHCP" formControlName="ethUseDHCP" inputId="ethUseDHCP" [binary]="true"></p-checkbox>
                 </div>
+                <label for="ethUseDHCP" class="col-11 m-0 pl-3 md:col-2 md:flex-order-1 md:p-2">Use DHCP</label>
             </div>
 
             <div *ngIf="!ethernetForm.get('ethUseDHCP')?.value">
