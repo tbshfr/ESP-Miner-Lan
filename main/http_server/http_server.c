@@ -1409,7 +1409,7 @@ esp_err_t start_rest_server(void * pvParameters)
 
     /* URI handler for switching network mode */
     httpd_uri_t ethernet_mode_post_uri = {
-        .uri = "/api/system/ethernet/mode",
+        .uri = "/api/system/network/mode",
         .method = HTTP_POST,
         .handler = POST_ethernet_mode,
         .user_ctx = rest_context

@@ -101,7 +101,8 @@ void app_main(void)
             ESP_LOGW(TAG, "Ethernet unavailable, initializing WiFi fallback");
             wifi_init(&GLOBAL_STATE);
         }
-    } else {        ESP_LOGI(TAG, "Network mode: WiFi");
+    } else {
+        ESP_LOGI(TAG, "Network mode: WiFi");
         // init AP and connect to wifi
         wifi_init(&GLOBAL_STATE);
         // init Ethernet detection (but not full init)

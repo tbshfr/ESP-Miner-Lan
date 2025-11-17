@@ -456,7 +456,7 @@ static void screen_update_cb(lv_timer_t * timer)
         return;
     }
 
-    if (module->ap_enabled) {
+    if (module->ap_enabled && connection_wifi_status_label && connection_network_label) {
         // Update network label based on mode
         if (GLOBAL_STATE->ETHERNET_MODULE.network_mode == NETWORK_MODE_ETHERNET) {
             if (strcmp(lv_label_get_text(connection_network_label), "Network: Ethernet") != 0) {
