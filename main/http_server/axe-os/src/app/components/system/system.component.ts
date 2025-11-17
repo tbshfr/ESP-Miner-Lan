@@ -82,23 +82,44 @@ export class SystemComponent implements OnInit, OnDestroy {
   }
 
   getSystemRows(data: CombinedData): TableRow[] {
-    return [
+    const rows: TableRow[] = [
       { label: 'Device Model', value: data.asic.deviceModel || 'Other', valueClass: 'text-' + data.asic.swarmColor + '-500' },
       { label: 'Board Version', value: data.info.boardVersion },
       { label: 'ASIC Type', value: (data.asic.asicCount > 1 ? data.asic.asicCount + 'x ' : ' ') + data.asic.ASICModel, class: 'pb-3' },
       { label: 'Uptime', value: DateAgoPipe.transform(data.info.uptimeSeconds), class: 'pb-3' },
-      { label: 'Wi-Fi SSID', value: data.info.ssid, isSensitiveData: true },
-      { label: 'Wi-Fi Status', value: data.info.wifiStatus },
-      { label: 'Wi-Fi RSSI', value: data.info.wifiRSSI + ' dBm', valueClass: this.getWifiRssiColor(data.info.wifiRSSI), tooltip: this.getWifiRssiTooltip(data.info.wifiRSSI) },
-      { label: 'Wi-Fi IPv4', value: data.info.ipv4},
-      { label: 'Wi-Fi IPv6', value: data.info.ipv6, class: 'pb-3', isSensitiveData: true},
-      { label: 'MAC Address', value: data.info.macAddr, class: 'pb-3', isSensitiveData: true },
-      { label: 'Free Heap Memory', value: ByteSuffixPipe.transform(data.info.freeHeap)},
-      { label: '• Internal', value: ByteSuffixPipe.transform(data.info.freeHeapInternal)},
+    ];
+
+    if (data.info.ethAvailable) {
+      rows.push({ label: 'Network Mode', value: data.info.networkMode === 'wifi' ? 'Wi-Fi' : 'Ethernet' });
+    }
+
+    if (data.info.networkMode === 'ethernet') {
+      rows.push(
+        { label: 'Ethernet Link', value: data.info.ethLinkUp ? 'Connected' : 'Disconnected', valueClass: data.info.ethLinkUp ? 'text-green-500' : 'text-red-500' },
+        { label: 'Ethernet Status', value: data.info.ethConnected ? 'Active' : 'Inactive', valueClass: data.info.ethConnected ? 'text-green-500' : 'text-orange-500' },
+        { label: 'Ethernet IPv4', value: data.info.ethIPv4 || 'N/A' },
+        { label: 'Ethernet MAC', value: data.info.ethMac, class: 'pb-3', isSensitiveData: true }
+      );
+    } else {
+      rows.push(
+        { label: 'Wi-Fi SSID', value: data.info.ssid, isSensitiveData: true },
+        { label: 'Wi-Fi Status', value: data.info.wifiStatus },
+        { label: 'Wi-Fi RSSI', value: data.info.wifiRSSI + ' dBm', valueClass: this.getWifiRssiColor(data.info.wifiRSSI), tooltip: this.getWifiRssiTooltip(data.info.wifiRSSI) },
+        { label: 'Wi-Fi IPv4', value: data.info.ipv4 },
+        { label: 'Wi-Fi IPv6', value: data.info.ipv6, class: 'pb-3', isSensitiveData: true },
+        { label: 'Wi-Fi MAC', value: data.info.macAddr, class: 'pb-3', isSensitiveData: true }
+      );
+    }
+
+    rows.push(
+      { label: 'Free Heap Memory', value: ByteSuffixPipe.transform(data.info.freeHeap) },
+      { label: '• Internal', value: ByteSuffixPipe.transform(data.info.freeHeapInternal) },
       { label: '• Spiram', value: ByteSuffixPipe.transform(data.info.freeHeapSpiram), class: 'pb-3' },
       { label: 'Firmware Version', value: data.info.version },
       { label: 'AxeOS Version', value: data.info.axeOSVersion },
-      { label: 'ESP-IDF Version', value: data.info.idfVersion },
-    ];
+      { label: 'ESP-IDF Version', value: data.info.idfVersion }
+    );
+
+    return rows;
   }
 }
