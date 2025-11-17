@@ -37,6 +37,13 @@ static bool eth_started = false;
 static bool eth_link_up = false;
 static bool eth_got_ip = false;
 
+// Network configuration with default values
+static bool config_use_dhcp = true;
+static char config_static_ip[16] = "192.168.1.100";
+static char config_gateway[16] = "192.168.1.1";
+static char config_netmask[16] = "255.255.255.0";
+static char config_dns[16] = "8.8.8.8";
+
 /**
  * @brief Event handler for Ethernet events
  */
@@ -113,15 +120,42 @@ static void generate_mac_address(uint8_t *mac) {
     mac[5] = base_mac[5] ^ 0x01;  // Differentiate from WiFi
 }
 
-esp_err_t ethernet_w5500_init(void) {
+esp_err_t ethernet_w5500_init(bool use_dhcp, const char *static_ip, const char *gateway, const char *netmask, const char *dns) {
     if (eth_handle != NULL) {
         ESP_LOGW(TAG, "Ethernet already initialized");
         return ESP_OK;
     }
 
+    // Store manual ip config to persist on rebots
+    config_use_dhcp = use_dhcp;
+    if (static_ip) {
+        strncpy(config_static_ip, static_ip, sizeof(config_static_ip) - 1);
+        config_static_ip[sizeof(config_static_ip) - 1] = '\0';
+    }
+    if (gateway) {
+        strncpy(config_gateway, gateway, sizeof(config_gateway) - 1);
+        config_gateway[sizeof(config_gateway) - 1] = '\0';
+    }
+    if (netmask) {
+        strncpy(config_netmask, netmask, sizeof(config_netmask) - 1);
+        config_netmask[sizeof(config_netmask) - 1] = '\0';
+    }
+    if (dns) {
+        strncpy(config_dns, dns, sizeof(config_dns) - 1);
+        config_dns[sizeof(config_dns) - 1] = '\0';
+    }
+
     ESP_LOGI(TAG, "Initializing W5500 Ethernet (ESP-IDF native driver)");
     ESP_LOGI(TAG, "SPI Pins - MOSI:%d MISO:%d SCLK:%d CS:%d",
              W5500_SPI_MOSI, W5500_SPI_MISO, W5500_SPI_SCLK, W5500_SPI_CS);
+    ESP_LOGI(TAG, "Network config - DHCP: %s", use_dhcp ? "enabled" : "disabled");
+    if (!use_dhcp) {
+        ESP_LOGI(TAG, "Static IP: %s, Gateway: %s, Netmask: %s, DNS: %s", 
+                 static_ip ? static_ip : "none",
+                 gateway ? gateway : "none", 
+                 netmask ? netmask : "none",
+                 dns ? dns : "none");
+    }
 
     // Initialize SPI bus
     spi_bus_config_t buscfg = {
@@ -229,6 +263,65 @@ esp_err_t ethernet_w5500_init(void) {
         return ret;
     }
 
+    // Configure DHCP or Static IP
+    if (!use_dhcp && static_ip && gateway && netmask) {
+        ESP_LOGI(TAG, "Configuring static IP...");
+        
+        // Stop DHCP client
+        ret = esp_netif_dhcpc_stop(eth_netif);
+        if (ret != ESP_OK && ret != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
+            ESP_LOGE(TAG, "Failed to stop DHCP client: %s", esp_err_to_name(ret));
+            return ret;
+        }
+
+        // Parse and set static IP configuration
+        esp_netif_ip_info_t ip_info;
+        memset(&ip_info, 0, sizeof(esp_netif_ip_info_t));
+
+        if (esp_netif_str_to_ip4(static_ip, &ip_info.ip) != ESP_OK) {
+            ESP_LOGE(TAG, "Invalid static IP address: %s", static_ip);
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        if (esp_netif_str_to_ip4(gateway, &ip_info.gw) != ESP_OK) {
+            ESP_LOGE(TAG, "Invalid gateway address: %s", gateway);
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        if (esp_netif_str_to_ip4(netmask, &ip_info.netmask) != ESP_OK) {
+            ESP_LOGE(TAG, "Invalid netmask: %s", netmask);
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        // Set IP info
+        ret = esp_netif_set_ip_info(eth_netif, &ip_info);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to set IP info: %s", esp_err_to_name(ret));
+            return ret;
+        }
+
+        // Set DNS server if provided
+        if (dns) {
+            esp_netif_dns_info_t dns_info;
+            memset(&dns_info, 0, sizeof(esp_netif_dns_info_t));
+            
+            if (esp_netif_str_to_ip4(dns, &dns_info.ip.u_addr.ip4) == ESP_OK) {
+                dns_info.ip.type = ESP_IPADDR_TYPE_V4;
+                ret = esp_netif_set_dns_info(eth_netif, ESP_NETIF_DNS_MAIN, &dns_info);
+                if (ret != ESP_OK) {
+                    ESP_LOGW(TAG, "Failed to set DNS server: %s", esp_err_to_name(ret));
+                }
+            } else {
+                ESP_LOGW(TAG, "Invalid DNS address: %s", dns);
+            }
+        }
+
+        ESP_LOGI(TAG, "Static IP configured: IP=%s, GW=%s, Mask=%s, DNS=%s",
+                 static_ip, gateway, netmask, dns ? dns : "none");
+    } else {
+        ESP_LOGI(TAG, "Using DHCP for IP configuration");
+    }
+
     // Start Ethernet driver
     ret = esp_eth_start(eth_handle);
     if (ret != ESP_OK) {
@@ -316,5 +409,5 @@ esp_err_t ethernet_w5500_restart(void) {
     ESP_LOGI(TAG, "Restarting Ethernet...");
     ethernet_w5500_stop();
     vTaskDelay(pdMS_TO_TICKS(1000));
-    return ethernet_w5500_init();
+    return ethernet_w5500_init(config_use_dhcp, config_static_ip, config_gateway, config_netmask, config_dns);
 }

@@ -69,7 +69,28 @@ export class NetworkEditComponent implements OnInit, OnDestroy {
 
   }
 
+  private ipAddressValidator(control: any): {[key: string]: any} | null {
+    if (!control.value) {
+      return null;
+    }
+    const ipPattern = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    if (!ipPattern.test(control.value)) {
+      return { 'invalidIp': true };
+    }
+    return null;
+  }
+
   ngOnInit(): void {
+    // Initialize ethernet form immediately with defaults to ensure its always available
+    this.ethernetForm = this.fb.group({
+      networkMode: ['wifi'],
+      ethUseDHCP: [true],
+      ethStaticIP: ['192.168.1.121', [Validators.required, this.ipAddressValidator.bind(this)]],
+      ethGateway: ['192.168.1.1', [Validators.required, this.ipAddressValidator.bind(this)]],
+      ethSubnet: ['255.255.255.0', [Validators.required, this.ipAddressValidator.bind(this)]],
+      ethDNS: ['8.8.8.8', [Validators.required, this.ipAddressValidator.bind(this)]]
+    });
+
     this.systemService.getInfo(this.uri)
       .pipe(this.loadingService.lockUIUntilComplete())
       .subscribe(info => {
@@ -137,25 +158,19 @@ export class NetworkEditComponent implements OnInit, OnDestroy {
     this.http.get<EthernetStatus>('/api/system/ethernet/status')
       .subscribe({
         next: (status) => {
-          this.ethernetForm = this.fb.group({
-            networkMode: [status.networkMode],
-            ethUseDHCP: [!!status.ethUseDHCP],
-            ethStaticIP: [status.ethStaticIP || '192.168.1.121', [Validators.required]],
-            ethGateway: [status.ethGateway || '192.168.1.1', [Validators.required]],
-            ethSubnet: [status.ethSubnet || '255.255.255.0', [Validators.required]],
-            ethDNS: [status.ethDNS || '8.8.8.8', [Validators.required]]
+          this.ethernetForm.patchValue({
+            networkMode: status.networkMode || 'wifi',
+            ethUseDHCP: !!status.ethUseDHCP,
+            ethStaticIP: status.ethStaticIP || '192.168.1.121',
+            ethGateway: status.ethGateway || '192.168.1.1',
+            ethSubnet: status.ethSubnet || '255.255.255.0',
+            ethDNS: status.ethDNS || '8.8.8.8'
           });
+          this.ethernetForm.markAsPristine();
         },
-        error: () => {
-          // Fallback defaults if API call fails
-          this.ethernetForm = this.fb.group({
-            networkMode: ['wifi'],
-            ethUseDHCP: [true],
-            ethStaticIP: ['192.168.1.121', [Validators.required]],
-            ethGateway: ['192.168.1.1', [Validators.required]],
-            ethSubnet: ['255.255.255.0', [Validators.required]],
-            ethDNS: ['8.8.8.8', [Validators.required]]
-          });
+        error: (err) => {
+          console.error('Failed to load Ethernet config:', err);
+          // Keep default values
         }
       });
   }

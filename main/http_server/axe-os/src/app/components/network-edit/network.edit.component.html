@@ -119,28 +119,44 @@
                     <label for="ethStaticIP" class="col-12 md:col-2 md:m-0">Static IP</label>
                     <div class="col-12 md:col-10">
                         <input pInputText id="ethStaticIP" type="text" formControlName="ethStaticIP"
-                            placeholder="192.168.1.121" />
+                            placeholder="192.168.1.121" 
+                            [class.ng-invalid]="ethernetForm.get('ethStaticIP')?.invalid && ethernetForm.get('ethStaticIP')?.touched" />
+                        <small class="text-danger" *ngIf="ethernetForm.get('ethStaticIP')?.hasError('invalidIp') && ethernetForm.get('ethStaticIP')?.touched">
+                            Invalid IP address format
+                        </small>
                     </div>
                 </div>
                 <div class="field grid p-fluid">
                     <label for="ethGateway" class="col-12 md:col-2 md:m-0">Gateway</label>
                     <div class="col-12 md:col-10">
                         <input pInputText id="ethGateway" type="text" formControlName="ethGateway"
-                            placeholder="192.168.1.1" />
+                            placeholder="192.168.1.1" 
+                            [class.ng-invalid]="ethernetForm.get('ethGateway')?.invalid && ethernetForm.get('ethGateway')?.touched" />
+                        <small class="text-danger" *ngIf="ethernetForm.get('ethGateway')?.hasError('invalidIp') && ethernetForm.get('ethGateway')?.touched">
+                            Invalid Gateway format
+                        </small>
                     </div>
                 </div>
                 <div class="field grid p-fluid">
                     <label for="ethSubnet" class="col-12 md:col-2 md:m-0">Subnet Mask</label>
                     <div class="col-12 md:col-10">
                         <input pInputText id="ethSubnet" type="text" formControlName="ethSubnet"
-                            placeholder="255.255.255.0" />
+                            placeholder="255.255.255.0" 
+                            [class.ng-invalid]="ethernetForm.get('ethSubnet')?.invalid && ethernetForm.get('ethSubnet')?.touched" />
+                        <small class="text-danger" *ngIf="ethernetForm.get('ethSubnet')?.hasError('invalidIp') && ethernetForm.get('ethSubnet')?.touched">
+                            Invalid subnet mask format
+                        </small>
                     </div>
                 </div>
                 <div class="field grid p-fluid">
                     <label for="ethDNS" class="col-12 md:col-2 md:m-0">DNS Server</label>
                     <div class="col-12 md:col-10">
                         <input pInputText id="ethDNS" type="text" formControlName="ethDNS"
-                            placeholder="8.8.8.8" />
+                            placeholder="8.8.8.8" 
+                            [class.ng-invalid]="ethernetForm.get('ethDNS')?.invalid && ethernetForm.get('ethDNS')?.touched" />
+                        <small class="text-danger" *ngIf="ethernetForm.get('ethDNS')?.hasError('invalidIp') && ethernetForm.get('ethDNS')?.touched">
+                            Invalid DNS server IP address format
+                        </small>
                     </div>
                 </div>
             </div>

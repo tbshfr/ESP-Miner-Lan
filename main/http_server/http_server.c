@@ -779,22 +779,31 @@ static esp_err_t POST_ethernet_config(httpd_req_t * req)
     // Update static IP configuration
     if ((item = cJSON_GetObjectItem(root, "ethUseDHCP")) != NULL) {
         nvs_config_set_u16(NVS_CONFIG_ETH_USE_DHCP, item->valueint ? 1 : 0);
+        GLOBAL_STATE->ETHERNET_MODULE.eth_use_dhcp = item->valueint ? 1 : 0;
     }
 
     if ((item = cJSON_GetObjectItem(root, "ethStaticIP")) != NULL && cJSON_IsString(item)) {
         nvs_config_set_string(NVS_CONFIG_ETH_STATIC_IP, item->valuestring);
+        strncpy(GLOBAL_STATE->ETHERNET_MODULE.eth_static_ip, item->valuestring, 
+                sizeof(GLOBAL_STATE->ETHERNET_MODULE.eth_static_ip) - 1);
     }
 
     if ((item = cJSON_GetObjectItem(root, "ethGateway")) != NULL && cJSON_IsString(item)) {
         nvs_config_set_string(NVS_CONFIG_ETH_GATEWAY, item->valuestring);
+        strncpy(GLOBAL_STATE->ETHERNET_MODULE.eth_gateway, item->valuestring, 
+                sizeof(GLOBAL_STATE->ETHERNET_MODULE.eth_gateway) - 1);
     }
 
     if ((item = cJSON_GetObjectItem(root, "ethSubnet")) != NULL && cJSON_IsString(item)) {
         nvs_config_set_string(NVS_CONFIG_ETH_SUBNET, item->valuestring);
+        strncpy(GLOBAL_STATE->ETHERNET_MODULE.eth_subnet, item->valuestring, 
+                sizeof(GLOBAL_STATE->ETHERNET_MODULE.eth_subnet) - 1);
     }
 
     if ((item = cJSON_GetObjectItem(root, "ethDNS")) != NULL && cJSON_IsString(item)) {
         nvs_config_set_string(NVS_CONFIG_ETH_DNS, item->valuestring);
+        strncpy(GLOBAL_STATE->ETHERNET_MODULE.eth_dns, item->valuestring, 
+                sizeof(GLOBAL_STATE->ETHERNET_MODULE.eth_dns) - 1);
     }
 
     cJSON_Delete(root);

@@ -29,11 +29,17 @@ extern "C" {
  * - Starts DHCP client or configures static IP
  * - Creates esp_netif for Ethernet
  *
+ * @param use_dhcp Use DHCP for IP configuration (true) or static IP (false)
+ * @param static_ip Static IP address string, ignored if use_dhcp is true
+ * @param gateway Gateway IP address string, ignored if use_dhcp is true
+ * @param netmask Subnet mask string, ignored if use_dhcp is true
+ * @param dns DNS server IP address string, ignored if use_dhcp is true
+ *
  * @return ESP_OK on success
  *         ESP_ERR_NOT_FOUND if W5500 hardware not detected
  *         ESP_FAIL on other initialization errors
  */
-esp_err_t ethernet_w5500_init(void);
+esp_err_t ethernet_w5500_init(bool use_dhcp, const char *static_ip, const char *gateway, const char *netmask, const char *dns);
 
 /**
  * @brief Check if W5500 hardware was detected during initialization
