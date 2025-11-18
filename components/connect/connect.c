@@ -628,13 +628,19 @@ void ethernet_init(GlobalState *state)
         // Ethernet mode selected - fully initialize with DHCP/networking
         ESP_LOGI(TAG, "Network mode: Ethernet - Initializing W5500...");
 
+        char *hostname = nvs_config_get_string(NVS_CONFIG_HOSTNAME);
+
         esp_err_t ret = ethernet_w5500_init(
             state->ETHERNET_MODULE.eth_use_dhcp,
+            hostname,
             state->ETHERNET_MODULE.eth_static_ip,
             state->ETHERNET_MODULE.eth_gateway,
             state->ETHERNET_MODULE.eth_subnet,
             state->ETHERNET_MODULE.eth_dns
         );
+        
+        free(hostname);
+        
         if (ret == ESP_OK) {
             ESP_LOGI(TAG, "W5500 Ethernet initialized successfully");
             // Update MAC from actual hardware

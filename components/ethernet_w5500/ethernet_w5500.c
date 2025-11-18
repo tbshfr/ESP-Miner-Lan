@@ -39,6 +39,7 @@ static bool eth_got_ip = false;
 
 // Network configuration with default values
 static bool config_use_dhcp = true;
+static char config_hostname[255] = "";
 static char config_static_ip[16] = "192.168.1.100";
 static char config_gateway[16] = "192.168.1.1";
 static char config_netmask[16] = "255.255.255.0";
@@ -120,7 +121,7 @@ static void generate_mac_address(uint8_t *mac) {
     mac[5] = base_mac[5] ^ 0x01;  // Differentiate from WiFi
 }
 
-esp_err_t ethernet_w5500_init(bool use_dhcp, const char *static_ip, const char *gateway, const char *netmask, const char *dns) {
+esp_err_t ethernet_w5500_init(bool use_dhcp, const char *hostname, const char *static_ip, const char *gateway, const char *netmask, const char *dns) {
     if (eth_handle != NULL) {
         ESP_LOGW(TAG, "Ethernet already initialized");
         return ESP_OK;
@@ -128,6 +129,12 @@ esp_err_t ethernet_w5500_init(bool use_dhcp, const char *static_ip, const char *
 
     // Store manual ip config to persist on rebots
     config_use_dhcp = use_dhcp;
+    if (hostname) {
+        strncpy(config_hostname, hostname, sizeof(config_hostname) - 1);
+        config_hostname[sizeof(config_hostname) - 1] = '\0';
+    } else {
+        config_hostname[0] = '\0';
+    }
     if (static_ip) {
         strncpy(config_static_ip, static_ip, sizeof(config_static_ip) - 1);
         config_static_ip[sizeof(config_static_ip) - 1] = '\0';
@@ -329,6 +336,16 @@ esp_err_t ethernet_w5500_init(bool use_dhcp, const char *static_ip, const char *
         return ret;
     }
 
+    // Set hostname
+    if (hostname && strlen(hostname) > 0) {
+        ret = esp_netif_set_hostname(eth_netif, hostname);
+        if (ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to set hostname '%s': %s", hostname, esp_err_to_name(ret));
+        } else {
+            ESP_LOGI(TAG, "Ethernet hostname set to: %s", hostname);
+        }
+    }
+
     ESP_LOGI(TAG, "W5500 initialization complete");
     return ESP_OK;
 }
@@ -409,5 +426,5 @@ esp_err_t ethernet_w5500_restart(void) {
     ESP_LOGI(TAG, "Restarting Ethernet...");
     ethernet_w5500_stop();
     vTaskDelay(pdMS_TO_TICKS(1000));
-    return ethernet_w5500_init(config_use_dhcp, config_static_ip, config_gateway, config_netmask, config_dns);
+    return ethernet_w5500_init(config_use_dhcp, config_hostname, config_static_ip, config_gateway, config_netmask, config_dns);
 }

@@ -208,14 +208,28 @@ export class NetworkEditComponent implements OnInit, OnDestroy {
 
   public updateEthernetConfig() {
     const ethConfig = this.ethernetForm.getRawValue();
+    const hostnameValue = this.form.get('hostname')?.value;
+    const hostnameChanged = this.form.get('hostname')?.dirty;
 
     this.http.post('/api/system/ethernet/config', ethConfig)
-      .pipe(this.loadingService.lockUIUntilComplete())
+      .pipe(
+        switchMap(() => {
+          if (hostnameChanged && hostnameValue) {
+            return this.systemService.updateSystem(this.uri, { hostname: hostnameValue });
+          }
+          return [null];
+        }),
+        this.loadingService.lockUIUntilComplete()
+      )
       .subscribe({
         next: () => {
           this.toastr.success('Ethernet configuration saved');
           this.toastr.warning('Restart required for changes to take effect');
           this.savedChanges = true;
+          this.ethernetForm.markAsPristine();
+          if (hostnameChanged) {
+            this.form.markAsPristine();
+          }
         },
         error: (err: HttpErrorResponse) => {
           this.toastr.error(`Could not save Ethernet config. ${err.message}`);
