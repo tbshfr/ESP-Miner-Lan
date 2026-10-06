@@ -937,14 +937,9 @@ void ethernet_init(GlobalState *state)
     // This allows UI to show Ethernet option even when in WiFi mode
     state->ETHERNET_MODULE.eth_available = true;
 
-    // Generate and set MAC address for UI display
-    uint8_t mac[6];
-    esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    mac[5] += 1;  // Offset from WiFi MAC
-    snprintf(state->ETHERNET_MODULE.eth_mac_str,
-             sizeof(state->ETHERNET_MODULE.eth_mac_str),
-             "%02X:%02X:%02X:%02X:%02X:%02X",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    // Set MAC address for UI display (same one the W5500 driver uses)
+    ethernet_w5500_get_mac(state->ETHERNET_MODULE.eth_mac_str,
+                           sizeof(state->ETHERNET_MODULE.eth_mac_str));
 
     if (state->ETHERNET_MODULE.network_mode == NETWORK_MODE_ETHERNET) {
         // Ethernet mode selected - fully initialize with DHCP/networking
@@ -968,9 +963,6 @@ void ethernet_init(GlobalState *state)
         
         if (ret == ESP_OK) {
             ESP_LOGI(TAG, "W5500 Ethernet initialized successfully");
-            // Update MAC from actual hardware
-            ethernet_w5500_get_mac(state->ETHERNET_MODULE.eth_mac_str,
-                                  sizeof(state->ETHERNET_MODULE.eth_mac_str));
         } else {
             ESP_LOGW(TAG, "W5500 initialization failed: %s", esp_err_to_name(ret));
             ESP_LOGW(TAG, "Falling back to WiFi mode");

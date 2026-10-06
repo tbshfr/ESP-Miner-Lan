@@ -380,9 +380,11 @@ esp_err_t ethernet_w5500_get_mac(char *mac_str, size_t len) {
         return ESP_ERR_INVALID_ARG;
     }
 
+    // Derived deterministically, so this also works before ethernet_w5500_init()
+    uint8_t mac[6];
+    generate_mac_address(mac);
     snprintf(mac_str, len, "%02X:%02X:%02X:%02X:%02X:%02X",
-             eth_mac_addr[0], eth_mac_addr[1], eth_mac_addr[2],
-             eth_mac_addr[3], eth_mac_addr[4], eth_mac_addr[5]);
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
     return ESP_OK;
 }

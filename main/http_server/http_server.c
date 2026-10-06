@@ -1933,8 +1933,7 @@ esp_err_t POST_WWW_update(httpd_req_t * req)
     }
 
     wifi_mode_t mode;
-    esp_wifi_get_mode(&mode);
-    if (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA)
+    if (esp_wifi_get_mode(&mode) == ESP_OK && (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA))
     {
         HTTP_send_json_error(req, "500 Internal Server Error", "Not allowed in AP mode");
         return ESP_OK;
@@ -2019,8 +2018,7 @@ esp_err_t POST_OTA_update(httpd_req_t * req)
     }
 
     wifi_mode_t mode;
-    esp_wifi_get_mode(&mode);
-    if (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA)
+    if (esp_wifi_get_mode(&mode) == ESP_OK && (mode == WIFI_MODE_AP || mode == WIFI_MODE_APSTA))
     {
         HTTP_send_json_error(req, "500 Internal Server Error", "Not allowed in AP mode");
         return ESP_OK;

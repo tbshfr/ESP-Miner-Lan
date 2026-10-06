@@ -3,6 +3,7 @@
 #include "esp_partition.h"
 #include "esp_image_format.h"
 #include "esp_wifi.h"
+#include "esp_mac.h"
 #include "esp_ota_ops.h"
 #include "esp_system.h"
 #include "esp_heap_caps.h"
@@ -148,7 +149,7 @@ static void system_api_add_config(cJSON *root, GlobalState *g) {
     cJSON_AddStringToObject(root, "runningPartition", running ? running->label : "Unknown");
 
     uint8_t mac[6];
-    esp_wifi_get_mac(WIFI_IF_STA, mac);
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
     char formattedMac[18];
     snprintf(formattedMac, sizeof(formattedMac), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     cJSON_AddStringToObject(root, "macAddr", formattedMac);

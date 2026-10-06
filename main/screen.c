@@ -872,16 +872,12 @@ static void screen_update_cb(lv_timer_t * timer)
 
     if (GLOBAL_STATE->ETHERNET_MODULE.network_mode == NETWORK_MODE_ETHERNET) {
         // In Ethernet mode, show Ethernet status instead of WiFi RSSI
-        if (current_rssi_value != -127) {  // Use -127 as a flag for Ethernet mode
+        const char *eth_status = GLOBAL_STATE->ETHERNET_MODULE.eth_connected ? "Status: Connected"
+                               : GLOBAL_STATE->ETHERNET_MODULE.eth_link_up   ? "Status: Link Up"
+                                                                             : "Status: No Link";
+        if (strcmp(lv_label_get_text(wifi_signal_strength_label), eth_status) != 0) {
             lv_label_set_text(wifi_rssi_value_label, "Mode: Ethernet");
-            if (GLOBAL_STATE->ETHERNET_MODULE.eth_connected) {
-                lv_label_set_text(wifi_signal_strength_label, "Status: Connected");
-            } else if (GLOBAL_STATE->ETHERNET_MODULE.eth_link_up) {
-                lv_label_set_text(wifi_signal_strength_label, "Status: Link Up");
-            } else {
-                lv_label_set_text(wifi_signal_strength_label, "Status: No Link");
-            }
-            current_rssi_value = -127;
+            lv_label_set_text(wifi_signal_strength_label, eth_status);
         }
     } else if (module->is_connected) {
         get_wifi_current_rssi(&rssi_value);
