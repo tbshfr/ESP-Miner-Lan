@@ -63,5 +63,5 @@
     ],
     "idf.port": "/dev/ttyACM0",
     "C_Cpp.intelliSenseEngine": "Tag Parser",
-    "idf.pythonInstallPath": "/opt/esp/python_env/idf5.5_py3.12_env/bin/python"
+    "idf.pythonInstallPath": "/opt/esp/python_env/idf6.0_py3.12_env/bin/python"
 }

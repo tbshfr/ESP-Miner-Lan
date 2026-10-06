@@ -3,77 +3,30 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include "esp_attr.h"
+#include "esp_psram.h"
+#include "esp_heap_caps.h"
 
-#include "mbedtls/sha256.h"
+#include "psa/crypto.h"
 
 #define HASH_CNT_LSB 0x100000000uLL // 2^32 hashes for difficulty 1
 
-static const char hex_table[] = "0123456789abcdef";
+DRAM_ATTR static const char hex_table[] = "0123456789abcdef";
 
-static const uint8_t hex_val_table[256] = {
-    ['0'] = 0, ['1'] = 1, ['2'] = 2, ['3'] = 3, ['4'] = 4,
-    ['5'] = 5, ['6'] = 6, ['7'] = 7, ['8'] = 8, ['9'] = 9,
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Woverride-init"
+DRAM_ATTR const int8_t hex_val_table[256] = {
+    [0 ... 255] = -1,
+    ['0'] = 0,  ['1'] = 1,  ['2'] = 2,  ['3'] = 3,  ['4'] = 4,
+    ['5'] = 5,  ['6'] = 6,  ['7'] = 7,  ['8'] = 8,  ['9'] = 9,
     ['a'] = 10, ['b'] = 11, ['c'] = 12, ['d'] = 13, ['e'] = 14, ['f'] = 15,
     ['A'] = 10, ['B'] = 11, ['C'] = 12, ['D'] = 13, ['E'] = 14, ['F'] = 15
 };
-
-#ifndef bswap_16
-#define bswap_16(a) ((((uint16_t)(a) << 8) & 0xff00) | (((uint16_t)(a) >> 8) & 0xff))
-#endif
-
-#ifndef bswap_32
-#define bswap_32(a) ((((uint32_t)(a) << 24) & 0xff000000) | \
-                     (((uint32_t)(a) << 8) & 0xff0000) |    \
-                     (((uint32_t)(a) >> 8) & 0xff00) |      \
-                     (((uint32_t)(a) >> 24) & 0xff))
-#endif
-
-/*
- * General byte order swapping functions.
- */
-#define bswap16(x) __bswap16(x)
-#define bswap32(x) __bswap32(x)
-#define bswap64(x) __bswap64(x)
-
-uint32_t swab32(uint32_t v)
-{
-    return bswap_32(v);
-}
-
-// takes 80 bytes and flips every 4 bytes
-void flip80bytes(void *dest_p, const void *src_p)
-{
-    uint32_t *dest = dest_p;
-    const uint32_t *src = src_p;
-    int i;
-
-    for (i = 0; i < 20; i++)
-        dest[i] = swab32(src[i]);
-}
-
-void flip64bytes(void *dest_p, const void *src_p)
-{
-    uint32_t *dest = dest_p;
-    const uint32_t *src = src_p;
-    int i;
-
-    for (i = 0; i < 16; i++)
-        dest[i] = swab32(src[i]);
-}
-
-void flip32bytes(void *dest_p, const void *src_p)
-{
-    uint32_t *dest = dest_p;
-    const uint32_t *src = src_p;
-    int i;
-
-    for (i = 0; i < 8; i++)
-        dest[i] = swab32(src[i]);
-}
+#pragma GCC diagnostic pop
 
 size_t bin2hex(const uint8_t *buf, size_t buflen, char *hex, size_t hexlen)
 {
-    if (hexlen < buflen * 2) {
+    if (hexlen <= buflen * 2) {
         return 0;
     }
 
@@ -87,14 +40,18 @@ size_t bin2hex(const uint8_t *buf, size_t buflen, char *hex, size_t hexlen)
 
 size_t hex2bin(const char *hex, uint8_t *bin, size_t bin_len)
 {
-    size_t len = 0;
+    if (hex == NULL || bin == NULL) {
+        return 0;
+    }
 
-    while (len < bin_len && hex[0]) {
-        if (!hex[1]) {
-            bin[len++] = hex_val_table[(unsigned char)hex[0]] << 4;
-            break;
+    size_t len = 0;
+    while (len < bin_len && *hex != '\0') {
+        int byte = hex_decode_byte(hex);
+        if (byte < 0) {
+            return 0;
         }
-        bin[len++] = (hex_val_table[(unsigned char)hex[0]] << 4) | hex_val_table[(unsigned char)hex[1]];
+
+        bin[len++] = (uint8_t)byte;
         hex += 2;
     }
 
@@ -126,96 +83,152 @@ void print_hex(const uint8_t *b, size_t len,
     fflush(stdout);
 }
 
-char *double_sha256(const char *hex_string)
+void sha256_bin(const uint8_t *data, size_t data_len, uint8_t dest[32])
 {
-    size_t bin_len = strlen(hex_string) / 2;
-    uint8_t *bin = malloc(bin_len);
-    hex2bin(hex_string, bin, bin_len);
-
-    unsigned char first_hash_output[32], second_hash_output[32];
-
-    mbedtls_sha256(bin, bin_len, first_hash_output, 0);
-    mbedtls_sha256(first_hash_output, 32, second_hash_output, 0);
-
-    free(bin);
-
-    char *output_hash = malloc(64 + 1);
-    bin2hex(second_hash_output, 32, output_hash, 65);
-    return output_hash;
+    size_t output_len = 0;
+    psa_status_t status = psa_hash_compute(PSA_ALG_SHA_256, data, data_len,
+                                           dest, 32, &output_len);
+    if (status != PSA_SUCCESS || output_len != 32) {
+        memset(dest, 0, 32);
+    }
 }
 
 void double_sha256_bin(const uint8_t *data, const size_t data_len, uint8_t dest[32])
 {
     uint8_t first_hash_output[32];
-
-    mbedtls_sha256(data, data_len, first_hash_output, 0);
-    mbedtls_sha256(first_hash_output, 32, dest, 0);
+    sha256_bin(data, data_len, first_hash_output);
+    sha256_bin(first_hash_output, sizeof(first_hash_output), dest);
 }
 
-void single_sha256_bin(const uint8_t *data, const size_t data_len, uint8_t dest[32])
+static inline uint32_t sha256_rotr(uint32_t value, unsigned shift)
 {
-    // mbedtls_sha256(data, data_len, dest, 0);
-
-    // Initialize SHA256 context
-    mbedtls_sha256_context sha256_ctx;
-    mbedtls_sha256_init(&sha256_ctx);
-    mbedtls_sha256_starts(&sha256_ctx, 0);
-
-    // Compute first SHA256 hash of header
-    mbedtls_sha256_update(&sha256_ctx, data, 64);
-    unsigned char hash[32];
-    mbedtls_sha256_finish(&sha256_ctx, hash);
-
-    // Compute midstate from hash
-    memcpy(dest, hash, 32);
+    return (value >> shift) | (value << (32 - shift));
 }
+
+static uint32_t sha256_load_be32(const uint8_t *data)
+{
+    return ((uint32_t)data[0] << 24) |
+           ((uint32_t)data[1] << 16) |
+           ((uint32_t)data[2] << 8) |
+           (uint32_t)data[3];
+}
+
+static void sha256_store_be32(uint32_t value, uint8_t *dest)
+{
+    dest[0] = (uint8_t)(value >> 24);
+    dest[1] = (uint8_t)(value >> 16);
+    dest[2] = (uint8_t)(value >> 8);
+    dest[3] = (uint8_t)value;
+}
+
+static const uint32_t sha256_round_constants[64] = {
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+    0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+    0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+    0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+    0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+    0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+    0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+    0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+    0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+};
+
+static const uint32_t sha256_initial_state[8] = {
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+};
 
 void midstate_sha256_bin(const uint8_t *data, const size_t data_len, uint8_t dest[32])
 {
-    mbedtls_sha256_context midstate;
+    if (data == NULL || data_len != 64) {
+        memset(dest, 0, 32);
+        return;
+    }
 
-    // Calculate midstate
-    mbedtls_sha256_init(&midstate);
-    mbedtls_sha256_starts(&midstate, 0);
-    mbedtls_sha256_update(&midstate, data, 64);
+    uint32_t schedule[64];
+    for (int i = 0; i < 16; i++) {
+        schedule[i] = sha256_load_be32(data + (i * 4));
+    }
+    for (int i = 16; i < 64; i++) {
+        uint32_t s0 = sha256_rotr(schedule[i - 15], 7) ^
+                      sha256_rotr(schedule[i - 15], 18) ^
+                      (schedule[i - 15] >> 3);
+        uint32_t s1 = sha256_rotr(schedule[i - 2], 17) ^
+                      sha256_rotr(schedule[i - 2], 19) ^
+                      (schedule[i - 2] >> 10);
+        schedule[i] = schedule[i - 16] + s0 + schedule[i - 7] + s1;
+    }
 
-    // memcpy(dest, midstate.state, 32);
-     flip32bytes(dest, midstate.state);
+    uint32_t a = sha256_initial_state[0];
+    uint32_t b = sha256_initial_state[1];
+    uint32_t c = sha256_initial_state[2];
+    uint32_t d = sha256_initial_state[3];
+    uint32_t e = sha256_initial_state[4];
+    uint32_t f = sha256_initial_state[5];
+    uint32_t g = sha256_initial_state[6];
+    uint32_t h = sha256_initial_state[7];
+
+    for (int i = 0; i < 64; i++) {
+        uint32_t sum1 = sha256_rotr(e, 6) ^ sha256_rotr(e, 11) ^ sha256_rotr(e, 25);
+        uint32_t choose = (e & f) ^ (~e & g);
+        uint32_t temp1 = h + sum1 + choose + sha256_round_constants[i] + schedule[i];
+        uint32_t sum0 = sha256_rotr(a, 2) ^ sha256_rotr(a, 13) ^ sha256_rotr(a, 22);
+        uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
+        uint32_t temp2 = sum0 + majority;
+
+        h = g;
+        g = f;
+        f = e;
+        e = d + temp1;
+        d = c;
+        c = b;
+        b = a;
+        a = temp1 + temp2;
+    }
+
+    const uint32_t working[8] = { a, b, c, d, e, f, g, h };
+    for (int i = 0; i < 8; i++) {
+        sha256_store_be32(sha256_initial_state[i] + working[i], dest + i * 4);
+    }
 }
 
-void swap_endian_words(const char *hex_words, uint8_t *output)
+void reverse_32bit_words(const uint8_t src[32], uint8_t dest[32])
 {
-    size_t hex_length = strlen(hex_words);
-    if (hex_length % 8 != 0)
-    {
-        fprintf(stderr, "Must be 4-byte word aligned\n");
-        exit(EXIT_FAILURE);
-    }
-
-    size_t binary_length = hex_length / 2;
-
-    for (size_t i = 0; i < binary_length; i += 4)
-    {
-        for (int j = 0; j < 4; j++)
-        {
-            unsigned int byte_val;
-            sscanf(hex_words + (i + j) * 2, "%2x", &byte_val);
-            output[i + (3 - j)] = byte_val;
-        }
-    }
+    const uint32_t *s = (const uint32_t *)src;
+    uint32_t *d = (uint32_t *)dest;
+    
+    d[0] = s[7];
+    d[1] = s[6];
+    d[2] = s[5];
+    d[3] = s[4];
+    d[4] = s[3];
+    d[5] = s[2];
+    d[6] = s[1];
+    d[7] = s[0];    
 }
 
-void reverse_bytes(uint8_t *data, size_t len)
+void reverse_endianness_per_word(uint8_t data[32])
 {
-    for (int i = 0; i < len / 2; ++i)
-    {
-        uint8_t temp = data[i];
-        data[i] = data[len - 1 - i];
-        data[len - 1 - i] = temp;
-    }
+    uint32_t *d = (uint32_t *)data;
+
+    d[0] = __builtin_bswap32(d[0]);
+    d[1] = __builtin_bswap32(d[1]);
+    d[2] = __builtin_bswap32(d[2]);
+    d[3] = __builtin_bswap32(d[3]);
+    d[4] = __builtin_bswap32(d[4]);
+    d[5] = __builtin_bswap32(d[5]);
+    d[6] = __builtin_bswap32(d[6]);
+    d[7] = __builtin_bswap32(d[7]);
 }
 
-// static const double truediffone = 26959535291011309493156476344723991336010898738574164086137773096960.0;
+const double truediffone = 26959535291011309493156476344723991336010898738574164086137773096960.0;
 static const double bits192 = 6277101735386680763835789423207666416102355444464034512896.0;
 static const double bits128 = 340282366920938463463374607431768211456.0;
 static const double bits64 = 18446744073709551616.0;
@@ -250,16 +263,6 @@ void prettyHex(unsigned char *buf, int len)
         printf("%02X ", buf[i]);
     }
     printf("%02X]", buf[len - 1]);
-}
-
-uint32_t flip32(uint32_t val)
-{
-    uint32_t ret = 0;
-    ret |= (val & 0xFF) << 24;
-    ret |= (val & 0xFF00) << 8;
-    ret |= (val & 0xFF0000) >> 8;
-    ret |= (val & 0xFF000000) >> 24;
-    return ret;
 }
 
 /* Calculate the network difficulty from nBits */
@@ -332,10 +335,49 @@ void suffixString(uint64_t val, char * buf, size_t bufsiz, int sigdigits)
     }
 }
 
-float hashCounterToGhs(uint32_t duration_ms, uint32_t counter)
+float hashCounterToGhs(uint64_t duration_us, uint32_t counter)
 {
-    if (duration_ms == 0) return 0.0f;
-    float seconds = duration_ms / 1000.0;
+    if (duration_us == 0) return 0.0f;
+    float seconds = duration_us / 1000000.0;
     float hashrate = counter / seconds * (float)HASH_CNT_LSB; // Make sure it stays in float
     return hashrate / 1e9f; // Convert to Gh/s
+}
+
+void url_decode(char *dst, const char *src)
+{
+    if (dst == NULL || src == NULL) {
+        return;
+    }
+
+    while (*src != '\0') {
+        if (*src == '%' && src[1] != '\0') {
+            int byte = hex_decode_byte(src + 1);
+            if (byte >= 0) {
+                *dst++ = (char)byte;
+                src += 3;
+                continue;
+            }
+        }
+
+        if (*src == '+') {
+            *dst++ = ' ';
+            src++;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+    *dst = '\0';
+}
+
+char *strdup_psram(const char *str)
+{
+    if (!str) return NULL;
+    if (esp_psram_is_initialized()) {
+        char *p = heap_caps_malloc(strlen(str) + 1, MALLOC_CAP_SPIRAM);
+        if (p) {
+            strcpy(p, str);
+            return p;
+        }
+    }
+    return strdup(str);
 }

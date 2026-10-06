@@ -4,39 +4,62 @@
 #include <stddef.h>
 #include <stdint.h>
 
-size_t bin2hex(const uint8_t *buf, size_t buflen, char *hex, size_t hexlen);
+extern const int8_t hex_val_table[256];
 
-void flip80bytes(void *dest_p, const void *src_p);
-void flip32bytes(void *dest_p, const void *src_p);
+/**
+ * @brief Decode two hex ASCII characters into a single byte.
+ * @param hex Pointer to hex characters.
+ * @return Decoded byte value (0..255), or -1 if invalid or odd-length.
+ */
+static inline int hex_decode_byte(const char *hex)
+{
+    if (hex == NULL || hex[0] == '\0' || hex[1] == '\0') {
+        return -1;
+    }
+    int high = hex_val_table[(unsigned char)hex[0]];
+    int low  = hex_val_table[(unsigned char)hex[1]];
+    if ((high | low) < 0) {
+        return -1;
+    }
+    return (high << 4) | low;
+}
+
+size_t bin2hex(const uint8_t *buf, size_t buflen, char *hex, size_t hexlen);
 
 size_t hex2bin(const char *hex, uint8_t *bin, size_t bin_len);
 
 void print_hex(const uint8_t *b, size_t len,
                const size_t in_line, const char *prefix);
 
-char *double_sha256(const char *hex_string);
+void sha256_bin(const uint8_t *data, size_t data_len, uint8_t dest[32]);
 
 void double_sha256_bin(const uint8_t *data, const size_t data_len, uint8_t dest[32]);
 
-void single_sha256_bin(const uint8_t *data, const size_t data_len, uint8_t dest[32]);
 void midstate_sha256_bin(const uint8_t *data, const size_t data_len, uint8_t dest[32]);
 
-void swap_endian_words(const char *hex, uint8_t *output);
+void reverse_32bit_words(const uint8_t src[32], uint8_t dest[32]);
 
-void reverse_bytes(uint8_t *data, size_t len);
+void reverse_endianness_per_word(uint8_t data[32]);
+
+extern const double truediffone;
 
 double le256todouble(const void *target);
 
 void prettyHex(unsigned char *buf, int len);
 
-uint32_t flip32(uint32_t val);
-
 double networkDifficulty(uint32_t nBits);
 
 void suffixString(uint64_t val, char * buf, size_t bufsiz, int sigdigits);
 
-float hashCounterToGhs(uint32_t duration_ms, uint32_t counter);
+float hashCounterToGhs(uint64_t duration_us, uint32_t counter);
 
-#define STRATUM_DEFAULT_VERSION_MASK 0x1fffe000
+void url_decode(char *dst, const char *src);
+
+char *strdup_psram(const char *str);
+
+// BIP320 16-bit version rolling mask (bits 13..28: 0x1fffe000).
+// BM13xx ASICs program version rolling as a 16-bit field shifted by 13 (version_mask >> 13).
+// This is a strict hardware-compatible subset of the BIP323 mask.
+#define BIP320_VERSION_ROLLING_MASK 0x1fffe000U
 
 #endif // STRATUM_UTILS_H

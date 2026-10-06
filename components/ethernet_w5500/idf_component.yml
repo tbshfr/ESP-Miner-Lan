@@ -1,0 +1,3 @@
+dependencies:
+  # W5500 driver was moved out of esp_eth in ESP-IDF 6.0
+  espressif/w5500: "^2.0.0"

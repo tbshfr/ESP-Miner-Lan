@@ -1,17 +1,17 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { getHttpErrorMessage } from 'src/app/utils/error-handler';
 import { Component, Input, OnInit, OnDestroy } from '@angular/core';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { ToastrService } from 'ngx-toastr';
-import { finalize, startWith, switchMap, takeUntil } from 'rxjs/operators';
-import { BehaviorSubject, Observable, Subject, interval } from 'rxjs';
+import { finalize, switchMap, takeUntil } from 'rxjs/operators';
+import { BehaviorSubject, Observable, Subject, of } from 'rxjs';
 import { DialogService } from 'src/app/services/dialog.service';
 import { LoadingService } from 'src/app/services/loading.service';
-import { SystemService } from 'src/app/services/system.service';
-interface WifiNetwork {
-  ssid: string;
-  rssi: number;
-  authmode: number;
-}
+import { LiveDataService } from 'src/app/services/live-data.service';
+import { SystemApiService } from 'src/app/services/system.service';
+import { WifiNetwork } from 'src/app/generated/models';
+import { first } from 'rxjs/operators';
+import { ISystemUpdateResponse } from 'src/models/ISystemUpdateResponse';
 
 interface EthernetStatus {
   networkMode: string;
@@ -28,9 +28,10 @@ interface EthernetStatus {
 }
 
 @Component({
-  selector: 'app-network-edit',
-  templateUrl: './network.edit.component.html',
-  styleUrls: ['./network.edit.component.scss']
+    selector: 'app-network-edit',
+    templateUrl: './network.edit.component.html',
+    styleUrls: ['./network.edit.component.scss'],
+    standalone: false
 })
 export class NetworkEditComponent implements OnInit, OnDestroy {
   private formSubject = new BehaviorSubject<FormGroup | null>(null);
@@ -48,11 +49,18 @@ export class NetworkEditComponent implements OnInit, OnDestroy {
 
   // Ethernet status
   public networkMode: string = 'wifi';
-  public ethAvailable: boolean = true;  // Default true to prevent tree-shaking
+  public ethAvailable: boolean = false;
   public ethLinkUp: boolean = false;
   public ethConnected: boolean = false;
   public ethIPv4: string = '0.0.0.0';
   public ethMac: string = '00:00:00:00:00:00';
+
+  public readonly ethStaticFields = [
+    { name: 'ethStaticIP', label: 'Static IP', placeholder: '192.168.1.121' },
+    { name: 'ethGateway', label: 'Gateway', placeholder: '192.168.1.1' },
+    { name: 'ethSubnet', label: 'Subnet Mask', placeholder: '255.255.255.0' },
+    { name: 'ethDNS', label: 'DNS Server', placeholder: '8.8.8.8' },
+  ];
 
   private destroy$ = new Subject<void>();
 
@@ -60,7 +68,8 @@ export class NetworkEditComponent implements OnInit, OnDestroy {
 
   constructor(
     private fb: FormBuilder,
-    private systemService: SystemService,
+    private systemService: SystemApiService,
+    private liveDataService: LiveDataService,
     private toastr: ToastrService,
     private loadingService: LoadingService,
     private http: HttpClient,
@@ -91,58 +100,30 @@ export class NetworkEditComponent implements OnInit, OnDestroy {
       ethDNS: ['8.8.8.8', [Validators.required, this.ipAddressValidator.bind(this)]]
     });
 
-    this.systemService.getInfo(this.uri)
-      .pipe(this.loadingService.lockUIUntilComplete())
+    this.liveDataService.info$
+      .pipe(first(), takeUntil(this.destroy$), this.loadingService.lockUIUntilComplete())
       .subscribe(info => {
         this.form = this.fb.group({
           hostname: [info.hostname, [Validators.required]],
           ssid: [info.ssid, [Validators.required]],
           wifiPass: ['*****'],
-          ipv4: [info.ipv4 || ''],  // Add ipv4 field for WiFi banner
+          useNTP: [info.useNTP],
         });
-
-        // Load WiFi status
-        this.wifiIpv4 = info.ipv4 || '';
-        this.wifiStatus = info.wifiStatus || '';
-        this.wifiRSSI = info.wifiRSSI || -128;
-
-        // Load Ethernet status
-        this.networkMode = info.networkMode || 'wifi';
-        this.ethAvailable = !!info.ethAvailable;
-        this.ethLinkUp = !!info.ethLinkUp;
-        this.ethConnected = !!info.ethConnected;
-        this.ethIPv4 = info.ethIPv4 || '0.0.0.0';
-        this.ethMac = info.ethMac || '00:00:00:00:00:00';
-
         this.formSubject.next(this.form);
 
         // Load Ethernet configuration
         this.loadEthernetConfig();
       });
-    
-    // Start periodic refresh of network status
-    this.startPeriodicRefresh();
-  }
-  
-  ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
-  }
 
-  
-  private startPeriodicRefresh(): void {
-    interval(3000)  // Refresh every 3 seconds
-      .pipe(
-        startWith(0),
-        switchMap(() => this.systemService.getInfo(this.uri)),
-        takeUntil(this.destroy$)
-      )
+    // Keep network status up to date
+    this.liveDataService.info$
+      .pipe(takeUntil(this.destroy$))
       .subscribe(info => {
         // Update WiFi status
         this.wifiIpv4 = info.ipv4 || '';
         this.wifiStatus = info.wifiStatus || '';
         this.wifiRSSI = info.wifiRSSI || -128;
-        
+
         // Update Ethernet status
         this.networkMode = info.networkMode || 'wifi';
         this.ethAvailable = !!info.ethAvailable;
@@ -153,9 +134,13 @@ export class NetworkEditComponent implements OnInit, OnDestroy {
       });
   }
 
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
 
   private loadEthernetConfig(): void {
-    this.http.get<EthernetStatus>('/api/system/ethernet/status')
+    this.http.get<EthernetStatus>(`${this.uri}/api/system/ethernet/status`)
       .subscribe({
         next: (status) => {
           this.ethernetForm.patchValue({
@@ -175,8 +160,11 @@ export class NetworkEditComponent implements OnInit, OnDestroy {
       });
   }
 
+
   public updateSystem() {
 
+    const restartAlreadyPending = this.savedChanges;
+    const restartRequired = this.isRestartRequired;
     const form = this.form.getRawValue();
 
     // Allow an empty Wi-Fi password
@@ -194,30 +182,66 @@ export class NetworkEditComponent implements OnInit, OnDestroy {
     this.systemService.updateSystem(this.uri, form)
       .pipe(this.loadingService.lockUIUntilComplete())
       .subscribe({
-        next: () => {
-          this.toastr.warning('You must restart this device after saving for changes to take effect.');
+        next: (response: any) => {
+           // Check if response contains redirect information (hostname change)
+           if (response && response.redirect) {
+             const redirectResponse = response as ISystemUpdateResponse;
+             if (redirectResponse.redirect) {
+               let newHostname: string;
+               try {
+                 newHostname = new URL(redirectResponse.redirect.url).hostname;
+                } catch (error) {
+                  console.error('Invalid redirect URL:', redirectResponse.redirect.url, error);
+                  this.toastr.error('Failed to redirect due to invalid URL.');
+                  return; // Skip redirect on malformed URL
+                }
+               const redirectUrl = redirectResponse.redirect.url;
+               const redirectDelay = redirectResponse.redirect.delay;
+               
+               this.toastr.success(redirectResponse.redirect.message);
+               this.toastr.info(`Redirecting to ${newHostname} in ${Math.ceil(redirectDelay / 1000)} seconds...`);
+               
+               setTimeout(() => {
+                 window.location.href = redirectUrl;
+               }, redirectDelay);
+             }
+             return;
+           }
+
+           // Normal success handling
+           if (restartRequired) {
+             this.toastr.warning('You must restart this device after saving for changes to take effect.');
+           }
           this.toastr.success('Saved network settings');
-          this.savedChanges = true;
+          this.savedChanges = restartAlreadyPending || restartRequired;
+          this.form.markAsPristine();
         },
         error: (err: HttpErrorResponse) => {
-          this.toastr.error(`Could not save. ${err.message}`);
-          this.savedChanges = false;
+          this.toastr.error(`Could not save. ${getHttpErrorMessage(err, this.uri)}`);
+          this.savedChanges = restartAlreadyPending;
         }
       });
   }
 
   public updateEthernetConfig() {
     const ethConfig = this.ethernetForm.getRawValue();
-    const hostnameValue = this.form.get('hostname')?.value;
-    const hostnameChanged = this.form.get('hostname')?.dirty;
 
-    this.http.post('/api/system/ethernet/config', ethConfig)
+    // Shared settings (hostname, time sync) are saved through the regular system endpoint
+    const systemUpdate: { [key: string]: any } = {};
+    for (const field of ['hostname', 'useNTP']) {
+      const control = this.form.get(field);
+      if (control?.dirty) {
+        systemUpdate[field] = control.value;
+      }
+    }
+
+    this.http.post(`${this.uri}/api/system/ethernet/config`, ethConfig)
       .pipe(
         switchMap(() => {
-          if (hostnameChanged && hostnameValue) {
-            return this.systemService.updateSystem(this.uri, { hostname: hostnameValue });
+          if (Object.keys(systemUpdate).length > 0) {
+            return this.systemService.updateSystem(this.uri, systemUpdate);
           }
-          return [null];
+          return of(null);
         }),
         this.loadingService.lockUIUntilComplete()
       )
@@ -227,18 +251,16 @@ export class NetworkEditComponent implements OnInit, OnDestroy {
           this.toastr.warning('Restart required for changes to take effect');
           this.savedChanges = true;
           this.ethernetForm.markAsPristine();
-          if (hostnameChanged) {
-            this.form.markAsPristine();
-          }
+          this.form.markAsPristine();
         },
         error: (err: HttpErrorResponse) => {
-          this.toastr.error(`Could not save Ethernet config. ${err.message}`);
+          this.toastr.error(`Could not save Ethernet config. ${getHttpErrorMessage(err, this.uri)}`);
         }
       });
   }
 
   public switchNetworkMode(mode: string) {
-    this.http.post('/api/system/network/mode', { networkMode: mode })
+    this.http.post(`${this.uri}/api/system/network/mode`, { networkMode: mode })
       .pipe(this.loadingService.lockUIUntilComplete())
       .subscribe({
         next: () => {
@@ -248,14 +270,9 @@ export class NetworkEditComponent implements OnInit, OnDestroy {
           this.savedChanges = true;
         },
         error: (err: HttpErrorResponse) => {
-          this.toastr.error(`Could not switch network mode. ${err.message}`);
+          this.toastr.error(`Could not switch network mode. ${getHttpErrorMessage(err, this.uri)}`);
         }
       });
-  }
-
-  showWifiPassword: boolean = false;
-  toggleWifiPasswordVisibility() {
-    this.showWifiPassword = !this.showWifiPassword;
   }
 
   // Check if connected to WiFi (not in AP/captive portal mode)
@@ -266,10 +283,15 @@ export class NetworkEditComponent implements OnInit, OnDestroy {
            this.wifiIpv4 !== '0.0.0.0' &&
            this.wifiStatus === 'Connected!';
   }
-  
+
   // Check if connected to any network (WiFi or Ethernet)
   public isConnectedToNetwork(): boolean {
     return this.isConnectedToWifi() || this.ethConnected;
+  }
+
+  showWifiPassword: boolean = false;
+  toggleWifiPasswordVisibility() {
+    this.showWifiPassword = !this.showWifiPassword;
   }
 
   public scanWifi() {
@@ -309,7 +331,7 @@ export class NetworkEditComponent implements OnInit, OnDestroy {
             .subscribe((selectedSsid: string) => {
               if (selectedSsid) {
                 this.form.patchValue({ ssid: selectedSsid });
-                this.form.markAsDirty();
+                this.form.get('ssid')?.markAsDirty();
               }
             });
         },
@@ -325,11 +347,22 @@ export class NetworkEditComponent implements OnInit, OnDestroy {
       .subscribe({
         next: () => {
           this.toastr.success('Device restarted');
+          this.savedChanges = false;
         },
         error: (err: HttpErrorResponse) => {
-          this.toastr.error(`Could not restart. ${err.message}`);
+          this.toastr.error(`Could not restart. ${getHttpErrorMessage(err, this.uri)}`);
         }
       });
   }
-}
 
+  get noRestartFields(): string[] {
+    return [
+      'hostname'
+    ];
+  }
+
+  get isRestartRequired(): boolean {
+    return Object.entries(this.form.controls)
+      .some(([field, control]) => control.dirty && !this.noRestartFields.includes(field));
+  }
+}

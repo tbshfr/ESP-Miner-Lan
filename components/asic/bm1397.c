@@ -7,6 +7,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "frequency_transition_bmXX.h"
 #include "esp_log.h"
 
 #include "serial.h"
@@ -90,7 +91,12 @@ static void _send_BM1397(uint8_t header, uint8_t *data, uint8_t data_len, bool d
     packet_type_t packet_type = (header & TYPE_JOB) ? JOB_PACKET : CMD_PACKET;
     uint8_t total_length = (packet_type == JOB_PACKET) ? (data_len + 6) : (data_len + 5);
 
-    uint8_t buf[total_length];
+    if (total_length > 160) {
+        ESP_LOGE(TAG, "Packet length %d exceeds maximum buffer size", total_length);
+        return;
+    }
+
+    uint8_t buf[160];
 
     // add the preamble
     buf[0] = 0x55;
@@ -130,7 +136,6 @@ static void _send_read_address(void)
 
 static void _send_chain_inactive(void)
 {
-
     unsigned char read_address[2] = {0x00, 0x00};
     // send serial data
     _send_BM1397((TYPE_CMD | GROUP_ALL | CMD_INACTIVE), read_address, 2, BM1397_SERIALTX_DEBUG);
@@ -138,102 +143,34 @@ static void _send_chain_inactive(void)
 
 static void _set_chip_address(uint8_t chipAddr)
 {
-
     unsigned char read_address[2] = {chipAddr, 0x00};
     // send serial data
     _send_BM1397((TYPE_CMD | GROUP_SINGLE | CMD_SETADDRESS), read_address, 2, BM1397_SERIALTX_DEBUG);
 }
 
-void BM1397_set_version_mask(uint32_t version_mask) {
+void BM1397_set_version_mask(uint32_t version_mask) 
+{
     // placeholder
 }
 
-// borrowed from cgminer driver-gekko.c calc_gsf_freq()
-void BM1397_send_hash_frequency(float frequency)
+float BM1397_send_hash_frequency(float target_freq)
 {
     uint8_t fb_divider, refdiv, postdiv1, postdiv2;
-    float actual_freq;
-    pll_get_parameters(frequency, 60, 200, &fb_divider, &refdiv, &postdiv1, &postdiv2, &actual_freq);
-    ESP_LOGI(TAG, "Test PLL settings: %g MHz (fb_divider: %d, refdiv: %d, postdiv1: %d, postdiv2: %d)", actual_freq, fb_divider, refdiv, postdiv1, postdiv2);
+    float frequency;
 
-    unsigned char prefreq1[9] = {0x00, 0x70, 0x0F, 0x0F, 0x0F, 0x00}; // prefreq - pll0_divider
+    pll_get_parameters(target_freq, 60, 200, &fb_divider, &refdiv, &postdiv1, &postdiv2, &frequency);
 
-    // default 200Mhz if it fails
-    unsigned char freqbuf[9] = {0x00, 0x08, 0x40, 0xA0, 0x02, 0x25}; // freqbuf - pll0_parameter
+    uint8_t vdo_scale = 0x40;
+    uint8_t postdiv = ((postdiv1 & 0x7) << 4) + (postdiv2 & 0x7);
+    uint8_t freqbuf[6] = {0x00, 0x08, vdo_scale, fb_divider, refdiv, postdiv};  // freqbuf - pll0_parameter
+    uint8_t prefreq1[6] = {0x00, 0x70, 0x0F, 0x0F, 0x0F, 0x00}; // prefreq - pll0_divider
 
-    float deffreq = 200.0;
-
-    float fa, fb, fc1, fc2, newf;
-    float f1, basef, famax = 0x104, famin = 0x10;
-    int i;
-
-    // bound the frequency setting
-    //  You can go as low as 13 but it doesn't really scale or
-    //  produce any nonces
-    if (frequency < 50)
-    {
-        f1 = 50;
-    }
-    else if (frequency > 650)
-    {
-        f1 = 650;
-    }
-    else
-    {
-        f1 = frequency;
-    }
-
-    fb = 2;
-    fc1 = 1;
-    fc2 = 5; // initial multiplier of 10
-    if (f1 >= 500)
-    {
-        // halve down to '250-400'
-        fb = 1;
-    }
-    else if (f1 <= 150)
-    {
-        // triple up to '300-450'
-        fc1 = 3;
-    }
-    else if (f1 <= 250)
-    {
-        // double up to '300-500'
-        fc1 = 2;
-    }
-    // else f1 is 250-500
-
-    // f1 * fb * fc1 * fc2 is between 2500 and 6500
-    // - so round up to the next 25 (freq_mult)
-    basef = FREQ_MULT * ceil(f1 * fb * fc1 * fc2 / FREQ_MULT);
-
-    // fa should be between 100 (0x64) and 200 (0xC8)
-    fa = basef / FREQ_MULT;
-
-    // code failure ... basef isn't 400 to 6000
-    if (fa < famin || fa > famax)
-    {
-        newf = deffreq;
-    }
-    else
-    {
-        freqbuf[2] = 0x40 + (unsigned char)((int)fa >> 8);
-        freqbuf[3] = (unsigned char)((int)fa & 0xff);
-        freqbuf[4] = (unsigned char)fb;
-        // fc1, fc2 'should' already be 1..15
-        freqbuf[5] = (((unsigned char)fc1 & 0x7) << 4) + ((unsigned char)fc2 & 0x7);
-        
-        newf = basef / ((float)fb * (float)fc1 * (float)fc2);
-
-        ESP_LOGI(TAG, "Calculated PLL settings: %g MHz (fb: %d, fa: %d, fc1: %d, fc2: %d)", newf, (int)fb, (int) fb, (int)fc1, (int)fc2);
-    }
-
-    for (i = 0; i < 2; i++)
+    for (int i = 0; i < 2; i++)
     {
         vTaskDelay(10 / portTICK_PERIOD_MS);
         _send_BM1397((TYPE_CMD | GROUP_ALL | CMD_WRITE), prefreq1, 6, BM1397_SERIALTX_DEBUG);
     }
-    for (i = 0; i < 2; i++)
+    for (int i = 0; i < 2; i++)
     {
         vTaskDelay(10 / portTICK_PERIOD_MS);
         _send_BM1397((TYPE_CMD | GROUP_ALL | CMD_WRITE), freqbuf, 6, BM1397_SERIALTX_DEBUG);
@@ -241,14 +178,17 @@ void BM1397_send_hash_frequency(float frequency)
 
     vTaskDelay(10 / portTICK_PERIOD_MS);
 
-    ESP_LOGI(TAG, "Setting Frequency to %g MHz (%g)", frequency, newf);
+    ESP_LOGI(TAG, "Setting Frequency to %g MHz (%g)", target_freq, frequency);
+
+    return frequency;
 }
 
-uint8_t BM1397_init(float frequency, uint16_t asic_count, uint16_t difficulty)
+uint8_t BM1397_init(GlobalState * GLOBAL_STATE)
 {
     // send the init command
     _send_read_address();
 
+    uint16_t asic_count = GLOBAL_STATE->DEVICE_CONFIG.family.asic_count;
     int chip_counter = count_asic_chips(asic_count, BM1397_CHIP_ID, BM1397_CHIP_ID_RESPONSE_LENGTH);
 
     if (chip_counter == 0) {
@@ -277,6 +217,8 @@ uint8_t BM1397_init(float frequency, uint16_t asic_count, uint16_t difficulty)
     unsigned char init4[9] = {0x00, CORE_REGISTER_CONTROL, 0x80, 0x00, 0x80, 0x74}; // init4 - init_4_?
     _send_BM1397((TYPE_CMD | GROUP_ALL | CMD_WRITE), init4, 6, BM1397_SERIALTX_DEBUG);
 
+    uint16_t difficulty = GLOBAL_STATE->DEVICE_CONFIG.family.asic.difficulty;
+
     //set difficulty mask
     uint8_t difficulty_mask[6];
     get_difficulty_mask(difficulty, difficulty_mask);
@@ -288,21 +230,16 @@ uint8_t BM1397_init(float frequency, uint16_t asic_count, uint16_t difficulty)
     unsigned char init6[9] = {0x00, FAST_UART_CONFIGURATION, 0x06, 0x00, 0x00, 0x0F}; // init6 - fast_uart_configuration
     _send_BM1397((TYPE_CMD | GROUP_ALL | CMD_WRITE), init6, 6, BM1397_SERIALTX_DEBUG);
 
-    BM1397_set_default_baud();
-
-    BM1397_send_hash_frequency(frequency);
-
-    return chip_counter;
-}
-
-// Baud formula = 25M/((denominator+1)*8)
-// The denominator is 5 bits found in the misc_control (bits 9-13)
-int BM1397_set_default_baud(void)
-{
+    // Baud formula = 25M/((denominator+1)*8)
+    // The denominator is 5 bits found in the misc_control (bits 9-13)
     // default divider of 26 (11010) for 115,749
     unsigned char baudrate[9] = {0x00, MISC_CONTROL, 0x00, 0x00, 0b01111010, 0b00110001}; // baudrate - misc_control
     _send_BM1397((TYPE_CMD | GROUP_ALL | CMD_WRITE), baudrate, 6, BM1397_SERIALTX_DEBUG);
-    return 115749;
+
+    //ramp up the hash frequency
+    do_frequency_transition(GLOBAL_STATE, BM1397_send_hash_frequency);
+
+    return chip_counter;
 }
 
 int BM1397_set_max_baud(void)
@@ -317,11 +254,9 @@ int BM1397_set_max_baud(void)
 
 static uint8_t id = 0;
 
-void BM1397_send_work(void *pvParameters, bm_job *next_bm_job)
+void BM1397_send_work(GlobalState * GLOBAL_STATE, bm_job * next_bm_job)
 {
-    GlobalState *GLOBAL_STATE = (GlobalState *)pvParameters;
-
-    job_packet job;
+    job_packet job = { 0 };
     // max job number is 128
     // there is still some really weird logic with the job id bits for the asic to sort out
     // so we have it limited to 128 and it has to increment by 4
@@ -332,26 +267,21 @@ void BM1397_send_work(void *pvParameters, bm_job *next_bm_job)
     memcpy(&job.starting_nonce, &next_bm_job->starting_nonce, 4);
     memcpy(&job.nbits, &next_bm_job->target, 4);
     memcpy(&job.ntime, &next_bm_job->ntime, 4);
-    memcpy(&job.merkle4, next_bm_job->merkle_root + 28, 4);
-    memcpy(job.midstate, next_bm_job->midstate, 32);
+    memcpy(&job.merkle4, next_bm_job->merkle_root, 4);
+    memcpy(job.midstates, next_bm_job->midstates, next_bm_job->num_midstates * 32);
 
-    if (job.num_midstates == 4)
-    {
-        memcpy(job.midstate1, next_bm_job->midstate1, 32);
-        memcpy(job.midstate2, next_bm_job->midstate2, 32);
-        memcpy(job.midstate3, next_bm_job->midstate3, 32);
-    }
-
+    // Hold valid_jobs_lock across the free + reassignment so the result task
+    // (which snapshots active_jobs[job_id] under the same lock) can never observe
+    // or copy a slot we are freeing/replacing here. valid_jobs is set inside the
+    // same critical section so validity and the pointer stay consistent.
+    pthread_mutex_lock(&GLOBAL_STATE->ASIC_TASK_MODULE.valid_jobs_lock);
     if (GLOBAL_STATE->ASIC_TASK_MODULE.active_jobs[job.job_id] != NULL)
     {
         free_bm_job(GLOBAL_STATE->ASIC_TASK_MODULE.active_jobs[job.job_id]);
     }
-
     GLOBAL_STATE->ASIC_TASK_MODULE.active_jobs[job.job_id] = next_bm_job;
-
-    pthread_mutex_lock(&GLOBAL_STATE->valid_jobs_lock);
-    GLOBAL_STATE->valid_jobs[job.job_id] = 1;
-    pthread_mutex_unlock(&GLOBAL_STATE->valid_jobs_lock);
+    GLOBAL_STATE->ASIC_TASK_MODULE.valid_jobs[job.job_id] = 1;
+    pthread_mutex_unlock(&GLOBAL_STATE->ASIC_TASK_MODULE.valid_jobs_lock);
 
     #if BM1397_DEBUG_JOBS
     ESP_LOGI(TAG, "Send Job: %02X", job.job_id);
@@ -360,13 +290,13 @@ void BM1397_send_work(void *pvParameters, bm_job *next_bm_job)
     _send_BM1397((TYPE_JOB | GROUP_SINGLE | CMD_WRITE), (uint8_t *)&job, sizeof(job_packet), BM1397_DEBUG_WORK);
 }
 
-task_result *BM1397_process_work(void *pvParameters)
+task_result *BM1397_process_work(GlobalState * GLOBAL_STATE)
 {
     bm1397_asic_result_t asic_result = {0};
 
     memset(&result, 0, sizeof(task_result));
 
-    if (receive_work((uint8_t *)&asic_result, sizeof(asic_result)) == ESP_FAIL) {
+    if (receive_work((uint8_t *)&asic_result, sizeof(asic_result), &result.timestamp_us) == ESP_FAIL) {
         return NULL;
     }
 
@@ -376,9 +306,9 @@ task_result *BM1397_process_work(void *pvParameters)
             ESP_LOGW(TAG, "Unknown register read: %02x", asic_result.cmd.register_address);
             return NULL;
         }
-        result.asic_nr = asic_result.cmd.asic_address;
+        result.asic_nr = asic_result.cmd.asic_address / address_interval;
         result.value = ntohl(asic_result.cmd.value);
-        
+
         return &result;
     }
 
@@ -388,17 +318,24 @@ task_result *BM1397_process_work(void *pvParameters)
     uint8_t rx_job_id = asic_result.job.id & 0xfc;
     uint8_t rx_midstate_index = asic_result.job.id & 0x03;
 
-    GlobalState *GLOBAL_STATE = (GlobalState *)pvParameters;
-    if (GLOBAL_STATE->valid_jobs[rx_job_id] == 0)
+    // Read active_jobs[rx_job_id] under the lock: BM1397_send_work() can free and
+    // replace this slot from the create-jobs task, so dereferencing ->version /
+    // ->version_mask without the lock is a use-after-free. Snapshot both fields,
+    // then unlock and roll the version outside the critical section.
+    pthread_mutex_lock(&GLOBAL_STATE->ASIC_TASK_MODULE.valid_jobs_lock);
+    if (GLOBAL_STATE->ASIC_TASK_MODULE.valid_jobs[rx_job_id] == 0 || GLOBAL_STATE->ASIC_TASK_MODULE.active_jobs[rx_job_id] == NULL)
     {
+        pthread_mutex_unlock(&GLOBAL_STATE->ASIC_TASK_MODULE.valid_jobs_lock);
         ESP_LOGW(TAG, "Invalid job nonce found, id=%d", rx_job_id);
         return NULL;
     }
-
     uint32_t rolled_version = GLOBAL_STATE->ASIC_TASK_MODULE.active_jobs[rx_job_id]->version;
+    uint32_t version_mask = GLOBAL_STATE->ASIC_TASK_MODULE.active_jobs[rx_job_id]->version_mask;
+    pthread_mutex_unlock(&GLOBAL_STATE->ASIC_TASK_MODULE.valid_jobs_lock);
+
     for (int i = 0; i < rx_midstate_index; i++)
     {
-        rolled_version = increment_bitmask(rolled_version, GLOBAL_STATE->ASIC_TASK_MODULE.active_jobs[rx_job_id]->version_mask);
+        rolled_version = increment_bitmask(rolled_version, version_mask);
     }
 
     // ASIC may return the same nonce multiple times
@@ -424,21 +361,36 @@ task_result *BM1397_process_work(void *pvParameters)
         prev_nonce = asic_result.job.nonce;
     }
 
+    uint32_t nonce_h = ntohl(asic_result.job.nonce);
+    uint8_t asic_nr = (uint8_t)((nonce_h >> 17) & 0xff) / address_interval;
+    uint8_t core_id = (uint8_t)((nonce_h >> 25) & 0x7f);
+    uint8_t small_core_id = asic_result.job.id & 0x0f;
+
     result.job_id = rx_job_id;
     result.nonce = asic_result.job.nonce;
     result.rolled_version = rolled_version;
-    result.asic_nr = 0; // TODO
+    result.asic_nr = asic_nr;
+    result.core_id = core_id;
+    result.small_core_id = small_core_id;
 
     return &result;
 }
 
-void BM1397_read_registers(void)
+void BM1397_read_registers(GlobalState * GLOBAL_STATE)
 {
+    uint16_t asic_count = GLOBAL_STATE->DEVICE_CONFIG.family.asic_count;
+    if (asic_count == 0 || address_interval <= 0) {
+        return;
+    }
+
     int size = sizeof(REGISTER_MAP) / sizeof(REGISTER_MAP[0]);
-    for (int reg = 0; reg < size; reg++) {
-        if (REGISTER_MAP[reg] != REGISTER_INVALID) {
-            _send_BM1397((TYPE_CMD | GROUP_ALL | CMD_READ), (uint8_t[]){0x00, reg}, 2, BM1397_SERIALTX_DEBUG);
-            vTaskDelay(1 / portTICK_PERIOD_MS);
+    for (uint8_t chip = 0; chip < asic_count; chip++) {
+        uint8_t chip_addr = chip * address_interval;
+        for (int reg = 0; reg < size; reg++) {
+            if (REGISTER_MAP[reg] != REGISTER_INVALID) {
+                _send_BM1397((TYPE_CMD | GROUP_SINGLE | CMD_READ), (uint8_t[]){chip_addr, reg}, 2, BM1397_SERIALTX_DEBUG);
+                vTaskDelay(pdMS_TO_TICKS(1));
+            }
         }
     }
 }

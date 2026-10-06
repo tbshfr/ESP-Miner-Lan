@@ -10,6 +10,8 @@
 #include "esp_eth.h"
 #include "esp_eth_mac_spi.h"
 #include "esp_eth_phy.h"
+#include "esp_eth_mac_w5500.h"
+#include "esp_eth_phy_w5500.h"
 #include "esp_netif.h"
 #include "esp_event.h"
 #include "driver/spi_master.h"
@@ -204,12 +206,12 @@ esp_err_t ethernet_w5500_init(bool use_dhcp, const char *hostname, const char *s
 
     // Create W5500-specific configuration
     eth_w5500_config_t w5500_config = ETH_W5500_DEFAULT_CONFIG(W5500_SPI_HOST, &devcfg);
-    w5500_config.int_gpio_num = W5500_INT_GPIO;
+    w5500_config.base.int_gpio_num = W5500_INT_GPIO;
 
     // If no interrupt GPIO configured, use polling mode instead
     // ESP-IDF requires exactly one mode: interrupt XOR polling
     if (W5500_INT_GPIO < 0) {
-        w5500_config.poll_period_ms = 1;  // Poll every 1ms
+        w5500_config.base.poll_period_ms = 1;  // Poll every 1ms
         ESP_LOGI(TAG, "Using polling mode (no interrupt GPIO configured)");
     } else {
         ESP_LOGI(TAG, "Using interrupt mode on GPIO %d", W5500_INT_GPIO);

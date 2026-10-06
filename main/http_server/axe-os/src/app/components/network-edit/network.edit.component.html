@@ -1,190 +1,170 @@
-<form *ngIf="form" [formGroup]="form">
+@if (form) {
+  <form [formGroup]="form">
     <div class="card">
-        <!-- Ethernet Fallback Warning -->
-        <div class="field grid p-fluid mb-4" *ngIf="networkMode === 'ethernet' && !ethConnected && wifiIpv4">
-            <div class="col-12">
-                <div class="p-3 border-round bg-yellow-900 border-yellow-700"
-                     style="border: 2px solid;">
-                    <div class="flex align-items-start gap-3">
-                        <i class="pi pi-exclamation-triangle text-yellow-400 text-3xl"></i>
-                        <div class="flex-1">
-                            <div class="font-bold text-xl mb-2 text-yellow-200">
-                                Wi-Fi Fallback Mode
-                            </div>
-                            <div class="text-yellow-100 mb-2">
-                                Ethernet is configured but not connected. Currently using Wi-Fi fallback (IPv4: {{wifiIpv4}}).
-                            </div>
-                            <div class="text-yellow-100">
-                                <strong>Note:</strong> If Ethernet is no longer available, switch to Wi-Fi mode below to avoid confusion.
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+      <!-- Ethernet Fallback Warning -->
+      @if (networkMode === 'ethernet' && !ethConnected && wifiIpv4) {
+        <div class="bg-yellow-100 dark:bg-yellow-950/20 border border-yellow-500 dark:border-yellow-800 text-yellow-900 dark:text-yellow-200 mb-4 p-3 rounded flex items-start gap-3">
+          <i class="pi pi-exclamation-triangle text-xl text-yellow-700 dark:text-yellow-500"></i>
+          <div>
+            <div class="font-bold mb-1">Wi-Fi Fallback Mode</div>
+            <div class="mb-1">Ethernet is configured but not connected. Currently using Wi-Fi fallback (IPv4: {{wifiIpv4}}).</div>
+            <div><strong>Note:</strong> If Ethernet is no longer available, switch to Wi-Fi mode below to avoid confusion.</div>
+          </div>
         </div>
+      }
 
-        <!-- Active Network Status Banner -->
-        <div class="field grid p-fluid mb-4">
-            <div class="col-12">
-                <div class="p-3 border-round bg-gray-800 border-gray-700"
-                     style="border: 2px solid;">
-                    <div class="flex align-items-center gap-3">
-                        <i class="pi text-3xl"
-                           [ngClass]="networkMode === 'ethernet' ? 'pi-bolt' : 'pi-wifi'"></i>
-                        <div class="flex-1">
-                            <div class="font-bold text-xl mb-1">
-                                <span *ngIf="networkMode === 'wifi'">Wi-Fi Active</span>
-                                <span *ngIf="networkMode === 'ethernet' && ethConnected">Ethernet Active</span>
-                                <span *ngIf="networkMode === 'ethernet' && !ethConnected">Ethernet Connecting...</span>
-                            </div>
-                            <div class="text-600">
-                                <span *ngIf="networkMode === 'wifi'">IP: {{wifiIpv4 || 'Not connected'}}</span>
-                                <span *ngIf="networkMode === 'ethernet'">IP: {{ethIPv4}}</span>
-                                <span *ngIf="networkMode === 'wifi' && wifiRSSI > -128" class="ml-3">RSSI: {{wifiRSSI}} dBm</span>
-                                <span *ngIf="networkMode === 'wifi' && wifiRSSI <= -128" class="ml-3">RSSI: N/A</span>
-                                <span *ngIf="networkMode === 'ethernet' && ethLinkUp" class="ml-3 text-success">⚡ Link UP</span>
-                                <span *ngIf="networkMode === 'ethernet' && !ethLinkUp" class="ml-3 text-warning">⚠ Link DOWN</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+      <!-- Active Network Status Banner -->
+      <div class="border border-surface mb-4 p-3 rounded flex items-center gap-3">
+        <i class="pi text-3xl" [ngClass]="networkMode === 'ethernet' ? 'pi-bolt' : 'pi-wifi'"></i>
+        <div>
+          <div class="font-bold text-xl mb-1">
+            @if (networkMode === 'wifi') {
+              Wi-Fi Active
+            } @else if (ethConnected) {
+              Ethernet Active
+            } @else {
+              Ethernet Connecting...
+            }
+          </div>
+          <div class="text-secondary">
+            @if (networkMode === 'wifi') {
+              <span>IP: {{wifiIpv4 || 'Not connected'}}</span>
+              <span class="ml-3">RSSI: {{wifiRSSI > -128 ? wifiRSSI + ' dBm' : 'N/A'}}</span>
+            } @else {
+              <span>IP: {{ethIPv4}}</span>
+              @if (ethLinkUp) {
+                <span class="ml-3 text-green-500">⚡ Link UP</span>
+              } @else {
+                <span class="ml-3 text-yellow-500">⚠ Link DOWN</span>
+              }
+            }
+          </div>
         </div>
+      </div>
 
-        <div class="field grid p-fluid">
-            <label for="hostname" class="col-12 md:col-2 md:m-0">Hostname</label>
-            <div class="col-12 md:col-10">
-                <input pInputText id="hostname" type="text" formControlName="hostname" />
-            </div>
+      <div class="flex flex-col md:flex-row md:items-center mb-4 gap-2">
+        <label for="hostname" class="w-full md:w-2/12 font-medium">
+          <tooltip-text-icon
+            text="Hostname"
+            tooltip="Name of the device on your local network"
+            />
+        </label>
+        <div class="w-full md:w-10/12">
+          <input class="input-text" id="hostname" type="text" formControlName="hostname" />
         </div>
-
-        <!-- Network Mode Selection (show when Ethernet available and connected to any network) -->
-        <div class="field grid p-fluid" *ngIf="ethAvailable && isConnectedToNetwork()">
-            <label class="col-12 md:col-2 md:m-0">Network Mode</label>
-            <div class="col-12 md:col-10">
-                <div class="flex gap-3 mb-2">
-                    <button pButton type="button" label="Wi-Fi"
-                        [ngClass]="{'p-button-success': networkMode === 'wifi', 'p-button-secondary p-button-outlined': networkMode !== 'wifi'}"
-                        (click)="switchNetworkMode('wifi')"></button>
-                    <button pButton type="button" label="Ethernet"
-                        [ngClass]="{'p-button-success': networkMode === 'ethernet', 'p-button-secondary p-button-outlined': networkMode !== 'ethernet'}"
-                        (click)="switchNetworkMode('ethernet')"></button>
-                </div>
-                <div class="flex flex-column gap-1">
-                    <small class="text-success" *ngIf="ethAvailable">
-                        ✓ W5500 SPI module detected (MAC: {{ethMac}})
-                    </small>
-                    <small class="text-success" *ngIf="ethLinkUp">
-                        ✓ Ethernet cable connected (PHY link UP)
-                    </small>
-                    <small class="text-warning" *ngIf="ethAvailable && !ethLinkUp">
-                        ⚠ No Ethernet cable detected (PHY link DOWN)
-                    </small>
-                    <small class="text-success" *ngIf="ethConnected">
-                        ✓ IP address: {{ethIPv4}}
-                    </small>
-                    <small class="text-warning" *ngIf="ethLinkUp && !ethConnected">
-                        ⚠ Waiting for IP address (DHCP/Static)
-                    </small>
-                </div>
-            </div>
+      </div>
+      <div class="flex flex-col md:flex-row md:items-center mb-4 gap-2">
+        <label for="useNTP" class="w-full md:w-2/12 font-medium cursor-pointer select-none">
+            <tooltip-text-icon
+              text="Enable Time Sync"
+              tooltip="Your device will sync with a DHCP-provided NTP server, or the nearest if not provided"
+            />
+        </label>
+        <div class="w-full md:w-10/12 flex items-center">
+          <app-checkbox name="useNTP" formControlName="useNTP" inputId="useNTP" [binary]="true"></app-checkbox>
         </div>
+      </div>
 
-        <!-- Wi-Fi Settings -->
-        <div *ngIf="networkMode === 'wifi'">
-            <div class="field grid p-fluid">
-                <label for="ssid" class="col-12 md:col-2 md:m-0">Wi-Fi SSID</label>
-                <div class="col-12 md:col-10 p-inputgroup">
-                    <input pInputText id="ssid" type="text" formControlName="ssid" />
-                    <p-button
-                        icon="pi pi-search"
-                        pp-button
-                        (click)="scanWifi()"
-                        [loading]="scanning"
-                        pTooltip="Scan Wi-Fi"
-                        tooltipPosition="left"></p-button>
-                </div>
+      <!-- Network Mode Selection (show when Ethernet available and connected to any network) -->
+      @if (ethAvailable && isConnectedToNetwork()) {
+        <div class="flex flex-col md:flex-row md:items-start mb-4 gap-2">
+          <label class="w-full md:w-2/12 font-medium md:py-2">Network Mode</label>
+          <div class="w-full md:w-10/12">
+            <div class="flex gap-3 mb-2">
+              <button type="button" class="btn" [class.btn-secondary]="networkMode !== 'wifi'"
+                (click)="switchNetworkMode('wifi')">Wi-Fi</button>
+              <button type="button" class="btn" [class.btn-secondary]="networkMode !== 'ethernet'"
+                (click)="switchNetworkMode('ethernet')">Ethernet</button>
             </div>
-            <div class="field grid p-fluid">
-                <label for="wifiPass" class="col-12 md:col-2 md:m-0">Wi-Fi Password</label>
-                <div class="col-12 md:col-10 p-input-icon-right">
-                    <i *ngIf="form.get('wifiPass')?.dirty" class="pi cursor-pointer"
-                        [ngClass]="{'pi-eye': !showWifiPassword, 'pi-eye-slash': showWifiPassword}"
-                        (click)="toggleWifiPasswordVisibility()"></i>
-                    <input pInputText id="wifiPass" formControlName="wifiPass"
-                        [type]="showWifiPassword ? 'text' : 'password'"
-                        placeholder="Enter Wi-Fi password" />
-                </div>
+            <div class="flex flex-col gap-1 text-sm">
+              <span class="text-green-500">✓ W5500 SPI module detected (MAC: {{ethMac}})</span>
+              @if (ethLinkUp) {
+                <span class="text-green-500">✓ Ethernet cable connected (PHY link UP)</span>
+              } @else {
+                <span class="text-yellow-500">⚠ No Ethernet cable detected (PHY link DOWN)</span>
+              }
+              @if (ethConnected) {
+                <span class="text-green-500">✓ IP address: {{ethIPv4}}</span>
+              } @else if (ethLinkUp) {
+                <span class="text-yellow-500">⚠ Waiting for IP address (DHCP/Static)</span>
+              }
             </div>
-
-            <div class="flex mt-5 gap-3">
-                <button pButton [disabled]="!form.dirty || form.invalid" (click)="updateSystem()"
-                    class="btn btn-primary">Save</button>
-                <button pButton [disabled]="!savedChanges" (click)="restart()">Restart</button>
-            </div>
+          </div>
         </div>
+      }
 
-        <!-- Ethernet Settings -->
-        <div *ngIf="networkMode === 'ethernet' && ethernetForm" [formGroup]="ethernetForm">
-            <div class="field-checkbox grid my-2">
-                <div class="col-1 md:col-10 md:flex-order-2">
-                    <p-checkbox name="ethUseDHCP" formControlName="ethUseDHCP" inputId="ethUseDHCP" [binary]="true"></p-checkbox>
-                </div>
-                <label for="ethUseDHCP" class="col-11 m-0 pl-3 md:col-2 md:flex-order-1 md:p-2">Use DHCP</label>
-            </div>
-
-            <div *ngIf="!ethernetForm.get('ethUseDHCP')?.value">
-                <div class="field grid p-fluid">
-                    <label for="ethStaticIP" class="col-12 md:col-2 md:m-0">Static IP</label>
-                    <div class="col-12 md:col-10">
-                        <input pInputText id="ethStaticIP" type="text" formControlName="ethStaticIP"
-                            placeholder="192.168.1.121" 
-                            [class.ng-invalid]="ethernetForm.get('ethStaticIP')?.invalid && ethernetForm.get('ethStaticIP')?.touched" />
-                        <small class="text-danger" *ngIf="ethernetForm.get('ethStaticIP')?.hasError('invalidIp') && ethernetForm.get('ethStaticIP')?.touched">
-                            Invalid IP address format
-                        </small>
-                    </div>
-                </div>
-                <div class="field grid p-fluid">
-                    <label for="ethGateway" class="col-12 md:col-2 md:m-0">Gateway</label>
-                    <div class="col-12 md:col-10">
-                        <input pInputText id="ethGateway" type="text" formControlName="ethGateway"
-                            placeholder="192.168.1.1" 
-                            [class.ng-invalid]="ethernetForm.get('ethGateway')?.invalid && ethernetForm.get('ethGateway')?.touched" />
-                        <small class="text-danger" *ngIf="ethernetForm.get('ethGateway')?.hasError('invalidIp') && ethernetForm.get('ethGateway')?.touched">
-                            Invalid Gateway format
-                        </small>
-                    </div>
-                </div>
-                <div class="field grid p-fluid">
-                    <label for="ethSubnet" class="col-12 md:col-2 md:m-0">Subnet Mask</label>
-                    <div class="col-12 md:col-10">
-                        <input pInputText id="ethSubnet" type="text" formControlName="ethSubnet"
-                            placeholder="255.255.255.0" 
-                            [class.ng-invalid]="ethernetForm.get('ethSubnet')?.invalid && ethernetForm.get('ethSubnet')?.touched" />
-                        <small class="text-danger" *ngIf="ethernetForm.get('ethSubnet')?.hasError('invalidIp') && ethernetForm.get('ethSubnet')?.touched">
-                            Invalid subnet mask format
-                        </small>
-                    </div>
-                </div>
-                <div class="field grid p-fluid">
-                    <label for="ethDNS" class="col-12 md:col-2 md:m-0">DNS Server</label>
-                    <div class="col-12 md:col-10">
-                        <input pInputText id="ethDNS" type="text" formControlName="ethDNS"
-                            placeholder="8.8.8.8" 
-                            [class.ng-invalid]="ethernetForm.get('ethDNS')?.invalid && ethernetForm.get('ethDNS')?.touched" />
-                        <small class="text-danger" *ngIf="ethernetForm.get('ethDNS')?.hasError('invalidIp') && ethernetForm.get('ethDNS')?.touched">
-                            Invalid DNS server IP address format
-                        </small>
-                    </div>
-                </div>
-            </div>
-
-            <div class="flex mt-5 gap-3">
-                <button pButton [disabled]="(!ethernetForm.dirty && !form.get('hostname')?.dirty) || ethernetForm.invalid || form.get('hostname')?.invalid"
-                    (click)="updateEthernetConfig()" class="btn btn-primary">Save</button>
-                <button pButton [disabled]="!savedChanges" (click)="restart()">Restart</button>
-            </div>
+      <!-- Wi-Fi Settings -->
+      @if (networkMode === 'wifi') {
+        <div class="flex flex-col md:flex-row md:items-center mb-4 gap-2">
+          <label for="ssid" class="w-full md:w-2/12 font-medium">Wi-Fi SSID</label>
+          <div class="w-full md:w-10/12 flex gap-2 items-center">
+            <input class="input-text flex-grow" id="ssid" type="text" formControlName="ssid" />
+            <button
+              type="button"
+              class="btn btn-secondary px-3.5 py-2.5 cursor-pointer"
+              (click)="scanWifi()"
+              [disabled]="scanning"
+              appTooltip="Scan Wi-Fi"
+              tooltipPosition="left">
+              <i class="pi {{scanning ? 'pi-spinner pi-spin' : 'pi-search'}}"></i>
+            </button>
+          </div>
         </div>
+        <div class="flex flex-col md:flex-row md:items-center mb-4 gap-2">
+          <label for="wifiPass" class="w-full md:w-2/12 font-medium">Wi-Fi Password</label>
+          <div class="w-full md:w-10/12">
+            <div class="relative w-full">
+              <input class="input-text pr-10" id="wifiPass" formControlName="wifiPass"
+                [type]="showWifiPassword ? 'text' : 'password'"
+                placeholder="Enter Wi-Fi password" />
+              @if (form.get('wifiPass')?.dirty) {
+                <span class="absolute inset-y-0 right-0 flex items-center pr-3 cursor-pointer text-secondary hover:text-main"
+                  (click)="toggleWifiPasswordVisibility()">
+                  <i class="pi {{!showWifiPassword ? 'pi-eye' : 'pi-eye-slash'}}"></i>
+                </span>
+              }
+            </div>
+          </div>
+        </div>
+        <div class="flex mt-5 gap-3">
+          <button [disabled]="!form.dirty || form.invalid" (click)="updateSystem()"
+          class="btn">Save</button>
+          <button [disabled]="!savedChanges" (click)="restart()" class="btn" [class.btn-secondary]="!savedChanges">Restart</button>
+        </div>
+      }
+
+      <!-- Ethernet Settings -->
+      @if (networkMode === 'ethernet' && ethernetForm) {
+        <div [formGroup]="ethernetForm">
+          <div class="flex flex-col md:flex-row md:items-center mb-4 gap-2">
+            <label for="ethUseDHCP" class="w-full md:w-2/12 font-medium cursor-pointer select-none">Use DHCP</label>
+            <div class="w-full md:w-10/12 flex items-center">
+              <app-checkbox name="ethUseDHCP" formControlName="ethUseDHCP" inputId="ethUseDHCP" [binary]="true"></app-checkbox>
+            </div>
+          </div>
+
+          @if (!ethernetForm.get('ethUseDHCP')?.value) {
+            @for (field of ethStaticFields; track field.name) {
+              <div class="flex flex-col md:flex-row md:items-center mb-4 gap-2">
+                <label [for]="field.name" class="w-full md:w-2/12 font-medium">{{field.label}}</label>
+                <div class="w-full md:w-10/12">
+                  <input class="input-text" [id]="field.name" type="text" [formControlName]="field.name"
+                    [placeholder]="field.placeholder" />
+                  @if (ethernetForm.get(field.name)?.hasError('invalidIp') && ethernetForm.get(field.name)?.touched) {
+                    <small class="text-red-500">Invalid {{field.label}} format</small>
+                  }
+                </div>
+              </div>
+            }
+          }
+
+          <div class="flex mt-5 gap-3">
+            <button [disabled]="(!ethernetForm.dirty && !form.dirty) || ethernetForm.invalid || form.get('hostname')?.invalid"
+              (click)="updateEthernetConfig()" class="btn">Save</button>
+            <button [disabled]="!savedChanges" (click)="restart()" class="btn" [class.btn-secondary]="!savedChanges">Restart</button>
+          </div>
+        </div>
+      }
     </div>
-</form>
+  </form>
+}

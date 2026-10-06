@@ -1,7 +1,7 @@
 import { Pipe, PipeTransform } from '@angular/core';
 
 @Pipe({
-  name: 'hashSuffix'
+    name: 'hashSuffix'
 })
 export class HashSuffixPipe implements PipeTransform {
 
@@ -16,6 +16,9 @@ export class HashSuffixPipe implements PipeTransform {
     if (value == null || value <= 0 || isNaN(value)) {
       return '0 H/s';
     }
+
+    // Normalize GH/s to H/s
+    value = value * 1_000_000_000;
 
     const suffixes = [' H/s', ' Kh/s', ' Mh/s', ' Gh/s', ' Th/s', ' Ph/s', ' Eh/s'];
 

@@ -157,13 +157,13 @@ To use different GPIO pins (e.g., to avoid conflict with BAP):
 
 BAP UART pins can also be changed in menuconfig:
 
-Navigate to: **Component config** → **BitAxe Configuration**
+Navigate to: **Bitaxe Configuration** → **GPIO Pin Configuration**
 
-| Option          | Default | Description                    |
-|-----------------|---------|--------------------------------|
-| `GPIO_BAP_RX`   | 40      | BAP UART Receive GPIO          |
-| `GPIO_BAP_TX`   | 39      | BAP UART Transmit GPIO         |
-| `ENABLE_BAP`    | n       | Enable BAP protocol support    |
+| Option          | Default | Description                                      |
+|-----------------|---------|--------------------------------------------------|
+| `GPIO_BAP_RX`   | -1      | BAP UART Receive GPIO (-1 = board default)       |
+| `GPIO_BAP_TX`   | -1      | BAP UART Transmit GPIO (-1 = board default)      |
+| `ENABLE_BAP`    | n       | Enable BAP protocol support (`sdkconfig.defaults`) |
 
 ## Network Configuration
 
